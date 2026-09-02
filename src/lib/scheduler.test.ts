@@ -31,9 +31,10 @@ describe("createSchedule", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.assignments).toHaveLength(3);
+    const assignments = result.solutions[0];
+    expect(assignments).toHaveLength(3);
     const used = new Set<string>();
-    result.assignments.forEach((assignment) => {
+    assignments.forEach((assignment) => {
       assignment.periods.forEach((period) => {
         const key = `${assignment.day}:${period}`;
         expect(used.has(key)).toBe(false);
@@ -60,6 +61,81 @@ describe("createSchedule", () => {
 
     const result = createSchedule(parsed.lessons, 4, 2, 1);
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.assignments).toHaveLength(7);
+    if (result.ok) expect(result.solutions[0]).toHaveLength(7);
+  });
+
+  it("요일별 마지막 교시 이후에는 배정하지 않는다", () => {
+    const lessons = [lesson(1, "월", 1), lesson(2, "화", 1), lesson(3, "수", 1)];
+    const dayEndPeriods = { "월": 5, "화": 5, "수": 5, "목": 5, "금": 5 } as const;
+    const result = createSchedule(lessons, 4, 2, 1, dayEndPeriods);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    result.solutions[0].forEach((assignment) => {
+      expect(Math.max(...assignment.periods)).toBeLessThanOrEqual(dayEndPeriods[assignment.day]);
+      expect(assignment.periods).not.toContain(6);
+    });
+  });
+
+  it("가능한 편성안을 여러 개 반환한다", () => {
+    const lessons = [lesson(1, "금", 1)];
+    const dayEndPeriods = { "월": 4, "화": 0, "수": 0, "목": 0, "금": 0 } as const;
+    const result = createSchedule(lessons, 4, 2, 1, dayEndPeriods);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.solutions).toHaveLength(2);
+    expect(result.solutions.map((solution) => solution[0].periods)).toEqual([[1, 2], [3, 4]]);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("경우의 수가 많으면 100개에서 안전하게 제한한다", () => {
+    const lessons = [lesson(1, "월", 6), lesson(2, "화", 6), lesson(3, "수", 6)];
+    const dayEndPeriods = { "월": 4, "화": 4, "수": 4, "목": 4, "금": 4 } as const;
+    const result = createSchedule(lessons, 4, 1, 1, dayEndPeriods);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.solutions).toHaveLength(100);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("선택한 반 수를 최대치가 아니라 정확한 묶음 크기로 적용한다", () => {
+    const lessons = [
+      lesson(1, "월", 6),
+      lesson(2, "화", 6),
+      lesson(3, "수", 6),
+      lesson(4, "목", 6),
+    ];
+    const dayEndPeriods = { "월": 2, "화": 2, "수": 0, "목": 0, "금": 0 } as const;
+    const result = createSchedule(lessons, 4, 1, 2, dayEndPeriods);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    result.solutions.forEach((solution) => {
+      const counts = new Map<string, number>();
+      solution.forEach((assignment) => {
+        const key = `${assignment.day}:${assignment.periods.join("-")}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      });
+      expect([...counts.values()].every((count) => count === 2)).toBe(true);
+    });
+  });
+
+  it("홀수 개 반은 두 반씩 묶고 남은 한 반을 단독 배정한다", () => {
+    const lessons = [lesson(1, "월", 6), lesson(2, "화", 6), lesson(3, "수", 6)];
+    const dayEndPeriods = { "월": 2, "화": 2, "수": 0, "목": 0, "금": 0 } as const;
+    const result = createSchedule(lessons, 4, 1, 2, dayEndPeriods);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    result.solutions.forEach((solution) => {
+      const counts = new Map<string, number>();
+      solution.forEach((assignment) => {
+        const key = `${assignment.day}:${assignment.periods.join("-")}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      });
+      expect([...counts.values()].sort()).toEqual([1, 2]);
+    });
   });
 });

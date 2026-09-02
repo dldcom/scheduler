@@ -4,12 +4,15 @@ import {
   type Assignment,
   type ClassInfo,
   type Day,
+  type DayEndPeriods,
   type LectureDuration,
   type Lesson,
   type ScheduleResult,
 } from "../types";
 
 type Candidate = { day: Day; periods: number[] };
+const MAX_SOLUTIONS = 100;
+const MAX_SEARCH_NODES = 250_000;
 
 export function getClasses(lessons: Lesson[], grade?: number): ClassInfo[] {
   const maximumClassByGrade = new Map<number, number>();
@@ -46,11 +49,19 @@ export function createSchedule(
   lessons: Lesson[],
   grade: number,
   duration: LectureDuration,
-  simultaneousLimit: number,
+  simultaneousClassCount: number,
+  dayEndPeriods: DayEndPeriods = { "월": 6, "화": 6, "수": 6, "목": 6, "금": 6 },
 ): ScheduleResult {
   const classes = getClasses(lessons, grade);
   if (classes.length === 0) {
     return { ok: false, message: `${grade}학년 반 정보를 찾지 못했습니다.`, blockedClasses: [] };
+  }
+  if (simultaneousClassCount > classes.length) {
+    return {
+      ok: false,
+      message: `전체 반 수(${classes.length}개)보다 동시에 수업하는 반 수가 많습니다.`,
+      blockedClasses: classes,
+    };
   }
 
   const busy = new Set(
@@ -64,7 +75,10 @@ export function createSchedule(
   classes.forEach((classInfo) => {
     const classCandidates = DAYS.flatMap((day) =>
       blocks.flatMap((periods) =>
-        periods.every((period) => !busy.has(`${classInfo.classNumber}:${day}:${period}`))
+        periods.every((period) =>
+          period <= dayEndPeriods[day]
+          && !busy.has(`${classInfo.classNumber}:${day}:${period}`),
+        )
           ? [{ day, periods }]
           : [],
       ),
@@ -87,12 +101,29 @@ export function createSchedule(
   });
   const load = new Map<string, number>();
   const assignments: Assignment[] = [];
+  const solutions: Assignment[][] = [];
+  let visitedNodes = 0;
+  let searchLimitReached = false;
 
-  function search(index: number): boolean {
-    if (index >= orderedClasses.length) return true;
+  function search(index: number): void {
+    if (solutions.length > MAX_SOLUTIONS || searchLimitReached) return;
+    visitedNodes += 1;
+    if (visitedNodes > MAX_SEARCH_NODES) {
+      searchLimitReached = true;
+      return;
+    }
+    if (index >= orderedClasses.length) {
+      if (!hasValidGroupSizes(assignments, simultaneousClassCount)) return;
+      solutions.push(
+        assignments
+          .map((assignment) => ({ ...assignment, periods: [...assignment.periods] }))
+          .sort((a, b) => a.classNumber - b.classNumber),
+      );
+      return;
+    }
     const classInfo = orderedClasses[index];
     const available = candidates.get(classKey(classInfo))!
-      .filter((candidate) => candidate.periods.every((period) => (load.get(slotKey(candidate.day, period)) ?? 0) < simultaneousLimit))
+      .filter((candidate) => candidate.periods.every((period) => (load.get(slotKey(candidate.day, period)) ?? 0) < simultaneousClassCount))
       .sort((a, b) => candidateScore(a, load) - candidateScore(b, load) || compareCandidates(a, b));
 
     for (const candidate of available) {
@@ -102,34 +133,55 @@ export function createSchedule(
       });
       assignments.push({ ...classInfo, day: candidate.day, periods: [...candidate.periods] });
 
-      if (search(index + 1)) return true;
+      search(index + 1);
 
       assignments.pop();
       candidate.periods.forEach((period) => {
         const key = slotKey(candidate.day, period);
         load.set(key, (load.get(key) ?? 1) - 1);
       });
+      if (solutions.length > MAX_SOLUTIONS || searchLimitReached) return;
     }
-
-    return false;
   }
 
-  if (!search(0)) {
+  search(0);
+
+  if (solutions.length === 0) {
     return {
       ok: false,
-      message: "가능한 시간은 있지만 동시 수업 가능 반 수 제한 안에서 모든 반을 배정할 수 없습니다.",
+      message: searchLimitReached
+        ? "가능한 조합이 너무 많아 안전한 계산 범위 안에서 편성안을 찾지 못했습니다."
+        : `가능한 시간은 있지만 모든 강의를 ${simultaneousClassCount}개 반씩 묶어 배정할 수 없습니다.`,
       blockedClasses: orderedClasses,
     };
   }
 
   return {
     ok: true,
-    assignments: assignments.sort((a, b) => a.classNumber - b.classNumber),
+    solutions: solutions.slice(0, MAX_SOLUTIONS),
+    truncated: solutions.length > MAX_SOLUTIONS || searchLimitReached,
   };
 }
 
 function classKey(item: ClassInfo): string {
   return `${item.grade}-${item.classNumber}`;
+}
+
+function hasValidGroupSizes(assignments: Assignment[], groupSize: number): boolean {
+  const groups = new Map<string, number>();
+  assignments.forEach((assignment) => {
+    const key = `${assignment.day}:${assignment.periods.join("-")}`;
+    groups.set(key, (groups.get(key) ?? 0) + 1);
+  });
+
+  const fullGroupCount = Math.floor(assignments.length / groupSize);
+  const remainder = assignments.length % groupSize;
+  const groupCounts = [...groups.values()];
+  const expectedGroupCount = fullGroupCount + (remainder > 0 ? 1 : 0);
+
+  return groupCounts.length === expectedGroupCount
+    && groupCounts.filter((count) => count === groupSize).length === fullGroupCount
+    && (remainder === 0 || groupCounts.filter((count) => count === remainder).length === 1);
 }
 
 function slotKey(day: Day, period: number): string {
@@ -139,7 +191,7 @@ function slotKey(day: Day, period: number): string {
 function candidateScore(candidate: Candidate, load: Map<string, number>): number {
   const periodLoad = candidate.periods.reduce((sum, period) => sum + (load.get(slotKey(candidate.day, period)) ?? 0), 0);
   const dayLoad = PERIODS.reduce((sum, period) => sum + (load.get(slotKey(candidate.day, period)) ?? 0), 0);
-  return periodLoad * 10 + dayLoad;
+  return periodLoad > 0 ? -100 - periodLoad : dayLoad;
 }
 
 function compareCandidates(a: Candidate, b: Candidate): number {

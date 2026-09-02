@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { consolidateLessons, parseLessonCell, parseTimetableGrid } from "./parser";
+import { createBlankTimetableGrid } from "./clipboard";
 
 describe("parseLessonCell", () => {
   it("학년-반과 과목을 추출한다", () => {
@@ -35,6 +36,16 @@ describe("parseTimetableGrid", () => {
       period: 2,
       sourceTableId: "source-1",
     });
+  });
+
+  it("직접 입력용 빈 시간표의 요일과 교시를 인식한다", () => {
+    const rows = createBlankTimetableGrid();
+    const parsed = parseTimetableGrid(rows, "manual");
+
+    expect(rows).toHaveLength(7);
+    expect(parsed.detectedDays).toEqual(["월", "화", "수", "목", "금"]);
+    expect(parsed.detectedPeriods).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(parsed.warnings).toHaveLength(0);
   });
 });
 

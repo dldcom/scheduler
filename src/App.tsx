@@ -1,22 +1,40 @@
 import { useEffect, useMemo, useState, type ClipboardEvent } from "react";
-import { gridFromClipboard } from "./lib/clipboard";
+import GuideTour, { type TourStep } from "./components/GuideTour";
+import {
+  copyHtmlAndText,
+  createBlankTimetableGrid,
+  gridFromClipboard,
+  scheduleToClipboardFormats,
+} from "./lib/clipboard";
 import { consolidateLessons, parseTimetableGrid } from "./lib/parser";
 import { createSchedule, getClasses } from "./lib/scheduler";
 import {
   DAYS,
   PERIODS,
+  type Day,
+  type DayEndPeriods,
   type LectureDuration,
   type ScheduleResult,
   type SourceTable,
 } from "./types";
 
+const EMPTY_DAY_END_PERIODS: DayEndPeriods = {
+  "월": 0,
+  "화": 0,
+  "수": 0,
+  "목": 0,
+  "금": 0,
+};
+
 function App() {
   const [sources, setSources] = useState<SourceTable[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
   const [duration, setDuration] = useState<LectureDuration>(2);
-  const [simultaneousLimit, setSimultaneousLimit] = useState(1);
+  const [simultaneousClassCount, setSimultaneousClassCount] = useState(1);
+  const [dayEndPeriods, setDayEndPeriods] = useState<DayEndPeriods>(EMPTY_DAY_END_PERIODS);
   const [result, setResult] = useState<ScheduleResult | null>(null);
   const [pasteMessage, setPasteMessage] = useState("");
+  const [guideStep, setGuideStep] = useState<TourStep | null>(null);
 
   const lessons = useMemo(
     () => consolidateLessons(sources.flatMap((source) => source.parsed.lessons)),
@@ -40,7 +58,11 @@ function App() {
 
   useEffect(() => {
     setResult(null);
-  }, [sources, selectedGrade, duration, simultaneousLimit]);
+  }, [sources, selectedGrade, duration, simultaneousClassCount, dayEndPeriods]);
+
+  useEffect(() => {
+    if (guideStep === 5 && result) setGuideStep(6);
+  }, [guideStep, result]);
 
   function handlePaste(event: ClipboardEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -61,6 +83,22 @@ function App() {
       { id, name: `전담 시간표 ${sourceNumber}`, rows, parsed },
     ]);
     setPasteMessage(`${rows.length}행 표를 추가했습니다.`);
+  }
+
+  function addBlankTimetable() {
+    const id = crypto.randomUUID();
+    const rows = createBlankTimetableGrid();
+    const sourceNumber = sources.length + 1;
+    setSources((current) => [
+      ...current,
+      {
+        id,
+        name: `직접 입력 시간표 ${sourceNumber}`,
+        rows,
+        parsed: parseTimetableGrid(rows, id),
+      },
+    ]);
+    setPasteMessage("빈 시간표를 추가했습니다. 각 칸에 학년-반과 과목을 입력해 주세요.");
   }
 
   function updateCell(sourceId: string, rowIndex: number, columnIndex: number, value: string) {
@@ -86,13 +124,25 @@ function App() {
 
   function runScheduler() {
     if (selectedGrade === null) return;
-    setResult(createSchedule(lessons, selectedGrade, duration, Math.max(1, simultaneousLimit)));
+    setResult(createSchedule(
+      lessons,
+      selectedGrade,
+      duration,
+      Math.max(1, simultaneousClassCount),
+      dayEndPeriods,
+    ));
+  }
+
+  function selectDayEndPeriod(day: Day, period: number) {
+    setDayEndPeriods((current) => ({
+      ...current,
+      [day]: current[day] === period ? 0 : period,
+    }));
   }
 
   return (
     <div className="app-shell">
       <header className="hero">
-        <div className="brand-mark" aria-hidden="true">시간표</div>
         <div>
           <p className="eyebrow">EXTERNAL CLASS SCHEDULER</p>
           <h1>외부강의 편성 도우미</h1>
@@ -100,12 +150,13 @@ function App() {
             전담 시간표를 그대로 붙여넣으세요. 반별로 비어 있는 시간을 찾아 외부강의를 자동으로 배정합니다.
           </p>
         </div>
+        <button className="help-button" type="button" onClick={() => setGuideStep(0)}>사용방법</button>
       </header>
 
       <main>
         <section className="panel input-panel">
           <div className="section-heading">
-            <span className="step">1</span>
+            <span className="step">01</span>
             <div>
               <h2>전담 시간표 붙여넣기</h2>
               <p>엑셀이나 한글에서 시간표 셀 전체를 복사한 다음 아래 영역에 붙여넣으세요.</p>
@@ -114,6 +165,7 @@ function App() {
 
           <div
             className="paste-zone"
+            data-guide="input"
             tabIndex={0}
             role="textbox"
             aria-label="전담 시간표 붙여넣기 영역"
@@ -123,9 +175,13 @@ function App() {
             <strong>여기를 클릭하고 Ctrl + V</strong>
             <span>표를 붙여넣을 때마다 시간표가 하나씩 추가됩니다.</span>
           </div>
+          <div className="input-alternative">
+            <span>또는</span>
+            <button type="button" onClick={addBlankTimetable}>빈 시간표 직접 입력</button>
+          </div>
           {pasteMessage && <p className="paste-message" role="status">{pasteMessage}</p>}
 
-          <div className="source-list">
+          <div className="source-list" data-guide="manual-input">
             {sources.map((source) => (
               <SourcePreview
                 key={source.id}
@@ -138,9 +194,9 @@ function App() {
           </div>
         </section>
 
-        <section className={`panel ${sources.length === 0 ? "muted-panel" : ""}`}>
+        <section data-guide="recognition" className={`panel ${sources.length === 0 ? "muted-panel" : ""}`}>
           <div className="section-heading">
-            <span className="step">2</span>
+            <span className="step">02</span>
             <div>
               <h2>인식 결과</h2>
               <p>표에서 찾은 반과 전담시간입니다. 반 번호는 발견된 가장 큰 번호까지 자동으로 포함합니다.</p>
@@ -204,14 +260,16 @@ function App() {
 
         <section className={`panel schedule-panel ${lessons.length === 0 ? "muted-panel" : ""}`}>
           <div className="section-heading">
-            <span className="step">3</span>
+            <span className="step">03</span>
             <div>
               <h2>외부강의 자동 편성</h2>
               <p>강의 조건을 정하면 전담시간과 겹치지 않는 조합을 계산합니다.</p>
             </div>
           </div>
 
-          <div className="config-row">
+          <DayPeriodSelector values={dayEndPeriods} onSelect={selectDayEndPeriod} />
+
+          <div className="config-row" data-guide="lecture-config">
             <label>
               <span>각 반의 강의 시간</span>
               <select value={duration} onChange={(event) => setDuration(Number(event.target.value) as LectureDuration)}>
@@ -222,29 +280,51 @@ function App() {
               </select>
             </label>
             <label>
-              <span>동시에 수업 가능한 반 수</span>
+              <span>동시에 수업하는 반 수</span>
               <div className="number-field">
                 <input
                   type="number"
                   min={1}
                   max={20}
-                  value={simultaneousLimit}
-                  onChange={(event) => setSimultaneousLimit(Math.max(1, Number(event.target.value) || 1))}
+                  value={simultaneousClassCount}
+                  onChange={(event) => setSimultaneousClassCount(Math.max(1, Number(event.target.value) || 1))}
                 />
                 <span>개 반</span>
               </div>
             </label>
-            <button className="primary-button" type="button" disabled={selectedGrade === null} onClick={runScheduler}>
+            <button
+              className="primary-button"
+              data-guide="schedule-button"
+              type="button"
+              disabled={selectedGrade === null || !DAYS.some((day) => dayEndPeriods[day] > 0)}
+              onClick={runScheduler}
+            >
               {selectedGrade ? `${selectedGrade}학년 자동 편성` : "자동 편성"}
             </button>
           </div>
+          <p className="rule-note">
+            반 수가 나누어떨어지지 않으면 나머지 반은 별도 타임에 배정됩니다. 예: 7개 반 ÷ 2개 반 → 2·2·2·1반
+          </p>
           {duration === 2 && <p className="rule-note">2교시 강의는 1~2, 3~4, 5~6교시 블록에만 배정됩니다.</p>}
 
-          {result && <ScheduleOutput result={result} grade={selectedGrade!} />}
+          {result && <ScheduleOutput result={result} grade={selectedGrade!} dayEndPeriods={dayEndPeriods} />}
         </section>
       </main>
 
       <footer>입력한 시간표는 서버로 전송되지 않고 현재 브라우저에서만 처리됩니다.</footer>
+      {guideStep !== null && (
+        <GuideTour
+          step={guideStep}
+          onStepChange={setGuideStep}
+          onClose={() => setGuideStep(null)}
+          onAddBlank={() => {
+            addBlankTimetable();
+            setGuideStep(1);
+          }}
+          hasLessons={lessons.length > 0}
+          hasDayPeriods={DAYS.some((day) => dayEndPeriods[day] > 0)}
+        />
+      )}
     </div>
   );
 }
@@ -304,10 +384,74 @@ function SourcePreview({
   );
 }
 
-function ScheduleOutput({ result, grade }: { result: ScheduleResult; grade: number }) {
+function DayPeriodSelector({
+  values,
+  onSelect,
+}: {
+  values: DayEndPeriods;
+  onSelect: (day: Day, period: number) => void;
+}) {
+  return (
+    <div className="day-period-selector" data-guide="day-periods">
+      <div className="day-period-heading">
+        <div>
+          <strong>요일별 수업 교시</strong>
+          <p>각 요일의 마지막 교시를 누르세요. 선택한 교시까지 자동으로 채워집니다.</p>
+        </div>
+        <span>선택한 범위 안에서만 외부강의를 배정합니다.</span>
+      </div>
+      <div className="day-period-grid" role="group" aria-label="요일별 마지막 수업 교시 선택">
+        <div className="period-corner">교시</div>
+        {DAYS.map((day) => (
+          <div className="day-header" key={day}>
+            <strong>{day}</strong>
+            <span>{values[day] > 0 ? `${values[day]}교시까지` : "선택 안 함"}</span>
+          </div>
+        ))}
+        {PERIODS.map((period) => [
+          <div className="period-label" key={`label-${period}`}>{period}</div>,
+          ...DAYS.map((day) => {
+            const selected = period <= values[day];
+            const isEnd = period === values[day];
+            return (
+              <button
+                key={`${day}-${period}`}
+                type="button"
+                className={`${selected ? "selected" : ""} ${isEnd ? "end-period" : ""}`}
+                aria-label={`${day}요일 ${period}교시까지 수업`}
+                aria-pressed={isEnd}
+                onClick={() => onSelect(day, period)}
+              >
+                {selected ? "✓" : ""}
+              </button>
+            );
+          }),
+        ])}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleOutput({
+  result,
+  grade,
+  dayEndPeriods,
+}: {
+  result: ScheduleResult;
+  grade: number;
+  dayEndPeriods: DayEndPeriods;
+}) {
+  const [solutionIndex, setSolutionIndex] = useState(0);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">("idle");
+
+  useEffect(() => {
+    setSolutionIndex(0);
+    setCopyStatus("idle");
+  }, [result]);
+
   if (!result.ok) {
     return (
-      <div className="result-box failure" role="alert">
+      <div className="result-box failure" data-guide="schedule-result" role="alert">
         <strong>편성하지 못했습니다.</strong>
         <p>{result.message}</p>
         {result.blockedClasses.length > 0 && (
@@ -317,15 +461,70 @@ function ScheduleOutput({ result, grade }: { result: ScheduleResult; grade: numb
     );
   }
 
+  const assignments = result.solutions[solutionIndex] ?? result.solutions[0];
+  const solutionCountLabel = result.truncated
+    ? `${result.solutions.length}개 이상`
+    : `${result.solutions.length}개`;
+
+  async function copyCurrentSchedule() {
+    const formats = scheduleToClipboardFormats(assignments, dayEndPeriods);
+    try {
+      await copyHtmlAndText(formats.html, formats.text);
+      setCopyStatus("success");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
+
   return (
-    <div className="result-box success">
+    <div className="result-box success" data-guide="schedule-result">
       <div className="result-heading">
         <div>
           <span>편성 완료</span>
           <h3>{grade}학년 외부강의 시간표</h3>
         </div>
-        <strong>{result.assignments.length}개 반 배정</strong>
+        <div className="result-heading-actions">
+          <strong>{assignments.length}개 반 · 편성안 {solutionCountLabel}</strong>
+          <button type="button" onClick={copyCurrentSchedule}>엑셀·한글로 복사</button>
+        </div>
       </div>
+      {copyStatus !== "idle" && (
+        <p className={`copy-result-status ${copyStatus}`} role="status">
+          {copyStatus === "success"
+            ? "표를 복사했습니다. 엑셀이나 한글에서 Ctrl+V로 붙여넣으세요."
+            : "클립보드에 복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요."}
+        </p>
+      )}
+      {result.solutions.length > 1 && (
+        <div className="solution-navigator">
+          <button
+            type="button"
+            disabled={solutionIndex === 0}
+            onClick={() => setSolutionIndex((current) => Math.max(0, current - 1))}
+          >
+            이전
+          </button>
+          <label>
+            <span>편성안</span>
+            <select
+              value={solutionIndex}
+              onChange={(event) => setSolutionIndex(Number(event.target.value))}
+            >
+              {result.solutions.map((_, index) => (
+                <option key={index} value={index}>{index + 1}번</option>
+              ))}
+            </select>
+            <span>/ {solutionCountLabel}</span>
+          </label>
+          <button
+            type="button"
+            disabled={solutionIndex >= result.solutions.length - 1}
+            onClick={() => setSolutionIndex((current) => Math.min(result.solutions.length - 1, current + 1))}
+          >
+            다음
+          </button>
+        </div>
+      )}
       <div className="table-scroll">
         <table className="result-table">
           <thead>
@@ -336,11 +535,11 @@ function ScheduleOutput({ result, grade }: { result: ScheduleResult; grade: numb
               <tr key={period}>
                 <th>{period}교시</th>
                 {DAYS.map((day) => {
-                  const assigned = result.assignments.filter(
+                  const assigned = assignments.filter(
                     (item) => item.day === day && item.periods.includes(period),
                   );
                   return (
-                    <td key={day}>
+                    <td key={day} className={period > dayEndPeriods[day] ? "closed-slot" : ""}>
                       {assigned.map((item) => <span className="assignment-chip" key={`${item.grade}-${item.classNumber}`}>{item.grade}-{item.classNumber}</span>)}
                     </td>
                   );
@@ -351,7 +550,7 @@ function ScheduleOutput({ result, grade }: { result: ScheduleResult; grade: numb
         </table>
       </div>
       <div className="assignment-list">
-        {result.assignments.map((item) => (
+        {assignments.map((item) => (
           <div key={`${item.grade}-${item.classNumber}`}>
             <strong>{item.grade}-{item.classNumber}</strong>
             <span>{item.day}요일 {formatPeriods(item.periods)}</span>

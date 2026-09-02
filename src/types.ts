@@ -40,11 +40,13 @@ export type ClassInfo = {
 
 export type LectureDuration = 1 | 2 | 3 | 4;
 
+export type DayEndPeriods = Record<Day, number>;
+
 export type Assignment = ClassInfo & {
   day: Day;
   periods: number[];
 };
 
 export type ScheduleResult =
-  | { ok: true; assignments: Assignment[] }
+  | { ok: true; solutions: Assignment[][]; truncated: boolean }
   | { ok: false; message: string; blockedClasses: ClassInfo[] };
