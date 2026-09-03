@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createSchedule, getAllowedPeriodBlocks, getClasses } from "./scheduler";
 import { parseTimetableGrid } from "./parser";
-import type { Lesson } from "../types";
+import type { DayPeriodSelection, Lesson } from "../types";
 
 function lesson(classNumber: number, day: Lesson["day"], period: number): Lesson {
   return { grade: 4, classNumber, day, period, subject: "전담", sourceTableId: "test" };
@@ -74,6 +74,22 @@ describe("createSchedule", () => {
     result.solutions[0].forEach((assignment) => {
       expect(Math.max(...assignment.periods)).toBeLessThanOrEqual(dayEndPeriods[assignment.day]);
       expect(assignment.periods).not.toContain(6);
+    });
+  });
+
+  it("개별 선택한 교시만 외부강의 후보로 사용한다", () => {
+    const lessons = [lesson(1, "월", 2), lesson(2, "화", 2)];
+    const dayPeriods: DayPeriodSelection = { "월": [1, 3], "화": [1, 3], "수": [], "목": [], "금": [] };
+    const result = createSchedule(lessons, 4, 1, 1, dayPeriods);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    result.solutions.forEach((solution) => {
+      solution.forEach((assignment) => {
+        const selected = dayPeriods[assignment.day];
+        expect(assignment.periods.every((period) => selected.includes(period))).toBe(true);
+        expect(assignment.periods).not.toContain(2);
+      });
     });
   });
 

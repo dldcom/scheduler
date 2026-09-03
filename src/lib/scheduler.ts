@@ -4,10 +4,11 @@ import {
   type Assignment,
   type ClassInfo,
   type Day,
-  type DayEndPeriods,
+  type DayPeriodInput,
   type LectureDuration,
   type Lesson,
   type ScheduleResult,
+  normalizeDayPeriodSelection,
 } from "../types";
 
 type Candidate = { day: Day; periods: number[] };
@@ -50,16 +51,17 @@ export function createSchedule(
   grade: number,
   duration: LectureDuration,
   simultaneousClassCount: number,
-  dayEndPeriods: DayEndPeriods = { "월": 6, "화": 6, "수": 6, "목": 6, "금": 6 },
+  dayPeriods: DayPeriodInput = { "월": 6, "화": 6, "수": 6, "목": 6, "금": 6 },
 ): ScheduleResult {
   const classes = getClasses(lessons, grade);
+  const selectedPeriods = normalizeDayPeriodSelection(dayPeriods);
   if (classes.length === 0) {
-    return { ok: false, message: `${grade}학년 반 정보를 찾지 못했습니다.`, blockedClasses: [] };
+    return { ok: false, message: `${grade}학년의 반 정보를 찾지 못했어요.`, blockedClasses: [] };
   }
   if (simultaneousClassCount > classes.length) {
     return {
       ok: false,
-      message: `전체 반 수(${classes.length}개)보다 동시에 수업하는 반 수가 많습니다.`,
+      message: `찾은 반은 ${classes.length}개인데, 동시에 수업하는 반 수가 ${simultaneousClassCount}개로 되어 있어요.`,
       blockedClasses: classes,
     };
   }
@@ -76,7 +78,7 @@ export function createSchedule(
     const classCandidates = DAYS.flatMap((day) =>
       blocks.flatMap((periods) =>
         periods.every((period) =>
-          period <= dayEndPeriods[day]
+          selectedPeriods[day].includes(period)
           && !busy.has(`${classInfo.classNumber}:${day}:${period}`),
         )
           ? [{ day, periods }]
@@ -90,7 +92,7 @@ export function createSchedule(
   if (blockedClasses.length > 0) {
     return {
       ok: false,
-      message: "전담시간과 겹치지 않는 연속 교시가 없는 반이 있습니다.",
+      message: "전담시간을 피해서 연속으로 넣을 수 없는 반이 있어요.",
       blockedClasses,
     };
   }
@@ -150,8 +152,8 @@ export function createSchedule(
     return {
       ok: false,
       message: searchLimitReached
-        ? "가능한 조합이 너무 많아 안전한 계산 범위 안에서 편성안을 찾지 못했습니다."
-        : `가능한 시간은 있지만 모든 강의를 ${simultaneousClassCount}개 반씩 묶어 배정할 수 없습니다.`,
+        ? "조건이 복잡해 계산을 마치지 못했어요. 가능한 요일이나 교시를 조금 늘려 보세요."
+        : `${simultaneousClassCount}개 반씩 묶어 수업할 시간이 부족해요.`,
       blockedClasses: orderedClasses,
     };
   }

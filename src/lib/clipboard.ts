@@ -1,4 +1,10 @@
-import { DAYS, PERIODS, type Assignment, type DayEndPeriods } from "../types";
+import {
+  DAYS,
+  PERIODS,
+  normalizeDayPeriodSelection,
+  type Assignment,
+  type DayPeriodInput,
+} from "../types";
 
 export function gridFromClipboard(html: string, plainText: string): string[][] {
   if (html.trim()) {
@@ -11,15 +17,16 @@ export function gridFromClipboard(html: string, plainText: string): string[][] {
 
 export function scheduleToClipboardFormats(
   assignments: Assignment[],
-  dayEndPeriods: DayEndPeriods,
+  dayPeriods: DayPeriodInput,
 ): { html: string; text: string } {
-  const lastUsedPeriod = Math.max(...Object.values(dayEndPeriods));
+  const selectedPeriods = normalizeDayPeriodSelection(dayPeriods);
+  const lastUsedPeriod = Math.max(0, ...DAYS.flatMap((day) => selectedPeriods[day]));
   const rows = [
     ["교시", ...DAYS],
     ...PERIODS.filter((period) => period <= lastUsedPeriod).map((period) => [
       `${period}교시`,
       ...DAYS.map((day) => {
-        if (period > dayEndPeriods[day]) return "";
+        if (!selectedPeriods[day].includes(period)) return "";
         return assignments
           .filter((assignment) => assignment.day === day && assignment.periods.includes(period))
           .sort((a, b) => a.grade - b.grade || a.classNumber - b.classNumber)
@@ -30,11 +37,13 @@ export function scheduleToClipboardFormats(
   ];
 
   const text = rows.map((row) => row.join("\t")).join("\n");
+  const columnWidths = [72, 114, 114, 114, 114, 114];
+  const colgroup = columnWidths.map((width) => `<col width="${width}" style="width:${width}px;">`).join("");
   const htmlRows = rows.map((row, rowIndex) => {
     const tag = rowIndex === 0 ? "th" : "td";
-    return `<tr>${row.map((cell) => `<${tag} style="border:1px solid #9ca3af;padding:8px 12px;text-align:center;white-space:pre-wrap;">${escapeHtml(cell)}</${tag}>`).join("")}</tr>`;
+    return `<tr>${row.map((cell) => `<${tag} style="width:auto;border:1px solid #9ca3af;padding:8px 12px;text-align:center;white-space:pre-wrap;mso-number-format:'@';">${escapeHtml(cell)}</${tag}>`).join("")}</tr>`;
   }).join("");
-  const html = `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12pt;"><tbody>${htmlRows}</tbody></table>`;
+  const html = `<table width="642" style="width:642px;min-width:642px;table-layout:fixed;border-collapse:collapse;font-family:Arial,sans-serif;font-size:12pt;"><colgroup>${colgroup}</colgroup><tbody>${htmlRows}</tbody></table>`;
 
   return { html, text };
 }

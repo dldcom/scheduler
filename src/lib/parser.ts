@@ -12,7 +12,7 @@ export function parseTimetableGrid(rows: string[][], sourceTableId: string): Par
   if (!header) {
     return {
       lessons,
-      warnings: [{ row: 0, column: 0, value: "", message: "요일 머리글을 찾지 못했습니다." }],
+      warnings: [{ row: 0, column: 0, value: "", message: "요일(월~금)을 찾지 못했어요." }],
       detectedDays: [],
       detectedPeriods: [],
     };
@@ -36,7 +36,7 @@ export function parseTimetableGrid(rows: string[][], sourceTableId: string): Par
           row: rowIndex,
           column: columnIndex,
           value,
-          message: "학년과 반을 인식하지 못했습니다.",
+          message: "‘4-1’처럼 학년과 반을 적어 주세요.",
         });
         return;
       }
@@ -48,7 +48,7 @@ export function parseTimetableGrid(rows: string[][], sourceTableId: string): Par
   });
 
   if (detectedPeriods.size === 0) {
-    warnings.push({ row: 0, column: 0, value: "", message: "교시 행을 찾지 못했습니다." });
+    warnings.push({ row: 0, column: 0, value: "", message: "교시를 찾지 못했어요." });
   }
 
   return {
