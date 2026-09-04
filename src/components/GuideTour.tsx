@@ -23,10 +23,10 @@ type TargetRect = {
 
 const STEP_CONTENT: Record<TourStep, { target: string; label: string; title: string; description: string }> = {
   0: {
-    target: "timetable-select",
+    target: "timetable-input",
     label: "1 / 5",
-    title: "전담 시간표 선택",
-    description: "왼쪽 저장 목록에서 이번에 사용할 전담 시간표를 선택합니다. 아직 저장한 시간표가 없다면 저장 목록을 열어 표를 붙여넣거나 직접 입력해 저장해 주세요.",
+    title: "전담 시간표 입력",
+    description: "한글·엑셀 표를 붙여넣거나 직접 작성합니다. 저장한 시간표는 저장 목록에서 다시 불러올 수 있어요.",
   },
   1: {
     target: "day-periods",
@@ -163,7 +163,7 @@ export default function GuideTour({
         {step === 0 && <CopyExample />}
         <div className="guide-actions">
           {step === 0 ? (
-            <button className="guide-secondary" type="button" onClick={onOpenSaved}>저장 목록 열기</button>
+            <button className="guide-secondary" type="button" onClick={onOpenSaved}>저장 목록에서 불러오기</button>
           ) : step > 0 && step < 4 ? (
             <button className="guide-secondary" type="button" onClick={goBack}>이전</button>
           ) : <span />}
@@ -176,9 +176,7 @@ export default function GuideTour({
           {step === 3 && <span className="guide-action-hint">자동 편성 버튼을 눌러 주세요</span>}
           {step === 4 && <button className="guide-primary" type="button" onClick={onClose}>확인</button>}
         </div>
-        {step === 0 && !hasLessons && (
-          <small>저장 목록에서 시간표를 선택하면 다음 버튼이 켜집니다.</small>
-        )}
+        {step === 0 && !hasLessons && <small>표를 붙여넣거나 직접 작성하면 다음 단계로 갈 수 있습니다.</small>}
       </aside>
     </div>
   );

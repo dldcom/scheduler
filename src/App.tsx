@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import GuideTour, { type TourStep } from "./components/GuideTour";
-import SavedInputTour, { type SavedInputTourStep } from "./components/SavedInputTour";
 import {
   copyHtmlAndText,
   createBlankTimetableGrid,
@@ -35,12 +34,14 @@ const EMPTY_DAY_PERIODS: DayPeriodSelection = {
 function App() {
   const [sources, setSources] = useState<SourceTable[]>([]);
   const [selectedTimetableId, setSelectedTimetableId] = useState<string | null>(null);
+  const [timetableName, setTimetableName] = useState("");
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
   const [duration, setDuration] = useState<LectureDuration>(2);
   const [simultaneousClassCount, setSimultaneousClassCount] = useState(1);
   const [dayPeriods, setDayPeriods] = useState<DayPeriodSelection>(EMPTY_DAY_PERIODS);
   const [result, setResult] = useState<ScheduleResult | null>(null);
   const [selectionMessage, setSelectionMessage] = useState("");
+  const [timetableMessage, setTimetableMessage] = useState("");
   const [guideStep, setGuideStep] = useState<TourStep | null>(null);
   const [savedTimetables, setSavedTimetables] = useState<SavedTimetable[]>([]);
   const [savedModalOpen, setSavedModalOpen] = useState(false);
@@ -51,15 +52,9 @@ function App() {
   );
   const classes = useMemo(() => getClasses(lessons), [lessons]);
   const grades = useMemo(() => [...new Set(classes.map((item) => item.grade))], [classes]);
-  const selectedTimetable = useMemo(
-    () => savedTimetables.find((item) => item.id === selectedTimetableId) ?? null,
-    [savedTimetables, selectedTimetableId],
-  );
-
   useEffect(() => {
     const saved = readSavedTimetables();
     setSavedTimetables(saved);
-    if (saved.length === 0) setSavedModalOpen(true);
   }, []);
 
   useEffect(() => {
@@ -78,13 +73,13 @@ function App() {
     if (guideStep === 3 && result) setGuideStep(4);
   }, [guideStep, result]);
 
-  function saveTimetable(item: SavedTimetable): boolean {
-    const existing = savedTimetables.find((saved) => saved.name === item.name);
+  function saveTimetable(item: SavedTimetable): string | null {
+    const existing = savedTimetables.find((saved) => saved.id === item.id || saved.name === item.name);
     const savedItem = existing ? { ...item, id: existing.id } : item;
     const next = [savedItem, ...savedTimetables.filter((saved) => saved.id !== savedItem.id)];
-    if (!writeSavedTimetables(next)) return false;
+    if (!writeSavedTimetables(next)) return null;
     setSavedTimetables(next);
-    return true;
+    return savedItem.id;
   }
 
   function removeSavedTimetable(item: SavedTimetable): boolean {
@@ -93,6 +88,23 @@ function App() {
     if (!writeSavedTimetables(next)) return false;
     setSavedTimetables(next);
     return true;
+  }
+
+  function startNewTimetable() {
+    setSources([]);
+    setSelectedTimetableId(null);
+    setTimetableName("");
+    setSelectedGrade(null);
+    setDayPeriods(EMPTY_DAY_PERIODS);
+    setResult(null);
+    setSelectionMessage("");
+    setTimetableMessage("");
+    setSavedModalOpen(false);
+    window.setTimeout(() => {
+      const input = document.querySelector<HTMLElement>('[data-guide="timetable-input"] .paste-zone');
+      input?.scrollIntoView({ behavior: "smooth", block: "center" });
+      input?.focus();
+    }, 80);
   }
 
   function loadSavedTimetable(item: SavedTimetable) {
@@ -108,10 +120,12 @@ function App() {
     });
     setSources(nextSources);
     setSelectedTimetableId(item.id);
+    setTimetableName(item.name);
     setSelectedGrade(null);
     setDayPeriods(EMPTY_DAY_PERIODS);
     setResult(null);
     setSelectionMessage("시간표가 선택되었습니다.");
+    setTimetableMessage("");
     setSavedModalOpen(false);
     window.setTimeout(() => {
       document.querySelector<HTMLElement>(".schedule-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -127,6 +141,102 @@ function App() {
       Math.max(1, simultaneousClassCount),
       dayPeriods,
     ));
+  }
+
+  function handleTimetablePaste(event: ClipboardEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const rows = gridFromClipboard(
+      event.clipboardData.getData("text/html"),
+      event.clipboardData.getData("text/plain"),
+    );
+    if (rows.length === 0) {
+      setTimetableMessage("표를 읽지 못했어요. 표 전체를 다시 복사해 주세요.");
+      return;
+    }
+
+    const id = crypto.randomUUID();
+    setSources((current) => [
+      ...current,
+      {
+        id,
+        name: `전담 시간표 ${current.length + 1}`,
+        rows,
+        parsed: parseTimetableGrid(rows, id),
+      },
+    ]);
+    setSelectedTimetableId(null);
+    setTimetableName((current) => current || "전담 시간표");
+    setSelectionMessage("");
+    setTimetableMessage(`시간표를 추가했어요. (${rows.length}행)`);
+  }
+
+  function addBlankTimetable() {
+    const id = crypto.randomUUID();
+    const rows = createBlankTimetableGrid();
+    setSources((current) => [
+      ...current,
+      {
+        id,
+        name: `직접 입력 시간표 ${current.length + 1}`,
+        rows,
+        parsed: parseTimetableGrid(rows, id),
+      },
+    ]);
+    setSelectedTimetableId(null);
+    setTimetableName((current) => current || "전담 시간표");
+    setSelectionMessage("");
+    setTimetableMessage("빈 표를 만들었어요. 각 칸에 내용을 입력해 주세요.");
+  }
+
+  function updateTimetableCell(sourceId: string, rowIndex: number, columnIndex: number, value: string) {
+    setSources((current) => current.map((source) => {
+      if (source.id !== sourceId) return source;
+      const rows = source.rows.map((row) => [...row]);
+      rows[rowIndex][columnIndex] = value;
+      return { ...source, rows, parsed: parseTimetableGrid(rows, source.id) };
+    }));
+    setSelectionMessage("");
+    setTimetableMessage("");
+  }
+
+  function renameTimetableSource(sourceId: string, name: string) {
+    setSources((current) => current.map((source) => source.id === sourceId ? { ...source, name } : source));
+    setSelectionMessage("");
+  }
+
+  function removeTimetableSource(sourceId: string) {
+    setSources((current) => current.filter((source) => source.id !== sourceId));
+    setSelectionMessage("");
+  }
+
+  function saveCurrentTimetable() {
+    if (sources.length === 0) {
+      setTimetableMessage("시간표를 먼저 입력해 주세요.");
+      return;
+    }
+    const name = timetableName.trim();
+    if (!name) {
+      setTimetableMessage("시간표 이름을 입력해 주세요.");
+      return;
+    }
+
+    const savedId = saveTimetable({
+      id: selectedTimetableId ?? crypto.randomUUID(),
+      name,
+      savedAt: Date.now(),
+      sources: sources.map((source) => ({
+        name: source.name,
+        rows: source.rows.map((row) => [...row]),
+      })),
+    });
+    if (!savedId) {
+      setTimetableMessage("저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.");
+      return;
+    }
+
+    setSelectedTimetableId(savedId);
+    setSelectionMessage("시간표가 저장되었습니다.");
+    setTimetableMessage("");
   }
 
   function toggleDayPeriod(day: Day, period: number) {
@@ -164,69 +274,92 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="hero">
-        <div>
-          <h1>외부강의 편성 도우미</h1>
-          <p className="hero-copy">
-            전담 시간표를 선택하고 조건을 고르면, 비어 있는 시간에 외부강의를 배정할 수 있습니다.
-          </p>
-        </div>
-        <button className="help-button" type="button" onClick={() => setGuideStep(0)}>사용방법</button>
-      </header>
-
-      <aside className="saved-sidebar">
-        <button className="saved-sidebar-button" type="button" onClick={() => setSavedModalOpen(true)}>
-          <span className="saved-sidebar-icon" aria-hidden="true">▣</span>
-          <span>저장 목록</span>
-        </button>
-      </aside>
+      <div className="app-title-row">
+        <h1>강의 시간표 도우미</h1>
+      </div>
 
       <main>
         <section className="panel timetable-selection-panel" data-guide="timetable-select">
           <div className="section-heading timetable-selection-heading">
             <div>
-              <span className="section-eyebrow">시작하기</span>
-              <h2>전담 시간표를 선택하세요</h2>
-              <p>저장 목록에서 이번에 사용할 전담 시간표를 골라 주세요.</p>
+              <h2>1. 전담 시간표 선택하기</h2>
             </div>
-            <button className="selection-open-button" type="button" onClick={() => setSavedModalOpen(true)}>
-              저장 목록 열기
-            </button>
           </div>
 
-          {sources.length === 0 ? (
-            <div className="timetable-selection-empty">
-              <span className="timetable-selection-icon" aria-hidden="true">▣</span>
-              <div>
-                <strong>저장 목록에서 전담 시간표를 선택하세요.</strong>
-                <p>아직 저장한 시간표가 없다면 저장 목록에서 표를 붙여넣거나 직접 입력해 저장할 수 있어요.</p>
-              </div>
+          <div className="selection-library-row">
+            <button className="selection-open-button selection-load-button" type="button" onClick={() => setSavedModalOpen(true)}>
+              저장 목록에서 불러오기
+            </button>
+            <button className="help-button selection-help-button" type="button" onClick={() => setGuideStep(0)}>사용방법</button>
+          </div>
+
+          <div className="timetable-input-area" data-guide="timetable-input">
+            <div
+              className="paste-zone"
+              tabIndex={0}
+              role="textbox"
+              aria-label="전담 시간표 붙여넣기"
+              onPaste={handleTimetablePaste}
+            >
+              <span className="paste-icon" aria-hidden="true">⌘</span>
+              <strong>시간표 붙여넣기 영역</strong>
+              <span>한글·엑셀 표를 복사한 뒤 Ctrl + V</span>
             </div>
-          ) : (
-            <div className="timetable-selection-selected" role="status">
-              <span className="timetable-selection-check" aria-hidden="true">✓</span>
-              <div>
-                <strong>{selectedTimetable?.name ?? "전담 시간표"}</strong>
-                <p>{selectionMessage || "시간표가 선택되었습니다."}</p>
+            <div className="input-alternative">
+              <span>또는</span>
+              <button type="button" onClick={addBlankTimetable}>직접 작성하기</button>
+            </div>
+          </div>
+          {timetableMessage && <p className="paste-message" role="status">{timetableMessage}</p>}
+
+          {sources.length > 0 && (
+            <div className="timetable-preview" data-guide="timetable-preview">
+              <div className="timetable-preview-heading">
+                <h3>미리보기</h3>
+                <span>{sources.length}개 표</span>
               </div>
-              <button className="selection-change-button" type="button" onClick={() => setSavedModalOpen(true)}>
-                다른 시간표 선택
-              </button>
+              <div className="source-list">
+                {sources.map((source) => (
+                  <SourcePreview
+                    key={source.id}
+                    source={source}
+                    onCellChange={updateTimetableCell}
+                    onNameChange={renameTimetableSource}
+                    onRemove={removeTimetableSource}
+                  />
+                ))}
+              </div>
+              <div className="timetable-save-row">
+                <label>
+                  <span>시간표 이름</span>
+                  <input
+                    value={timetableName}
+                    onChange={(event) => {
+                      setTimetableName(event.target.value);
+                      setSelectionMessage("");
+                    }}
+                    placeholder="예: 4학년 전담 시간표"
+                    maxLength={60}
+                  />
+                </label>
+                <button className="saved-save-button" type="button" onClick={saveCurrentTimetable}>
+                  시간표 목록에 저장하기
+                </button>
+              </div>
+              {selectionMessage && <p className="selection-status" role="status">{selectionMessage}</p>}
             </div>
           )}
         </section>
 
         {sources.length > 0 && <section className="panel schedule-panel">
           <div className="section-heading">
-            <span className="step">03</span>
             <div>
-              <h2>외부강의 자동 편성</h2>
-              <p>전담시간을 피해 외부강의를 넣을 수 있는 시간을 찾습니다.</p>
+              <h2>2. 배정 조건 정하기</h2>
             </div>
           </div>
 
           <div className="schedule-grade-picker" data-guide="grade-picker">
-            <span>편성할 학년</span>
+            <span>학년</span>
             <div role="tablist" aria-label="편성할 학년 선택">
               {grades.map((grade) => (
                 <button
@@ -249,7 +382,7 @@ function App() {
 
           <div className="config-row" data-guide="lecture-config">
             <label>
-              <span>각 반의 강의 시간</span>
+              <span>강의시간</span>
               <select value={duration} onChange={(event) => setDuration(Number(event.target.value) as LectureDuration)}>
                 <option value={1}>1교시</option>
                 <option value={2}>2교시 연속</option>
@@ -277,19 +410,19 @@ function App() {
               disabled={selectedGrade === null || !DAYS.some((day) => dayPeriods[day].length > 0)}
               onClick={runScheduler}
             >
-              {selectedGrade ? `${selectedGrade}학년 자동 편성` : "자동 편성"}
+              결과표 만들기
             </button>
           </div>
-          <p className="rule-note">
-            반 수가 딱 나뉘지 않으면 남은 반은 따로 배정합니다. 예: 7개 반 ÷ 2개 반 → 2·2·2·1
-          </p>
-          {duration === 2 && <p className="rule-note">2교시 수업은 1~2, 3~4, 5~6교시 중 하나에 들어갑니다.</p>}
+        </section>}
 
-          {result && <ScheduleOutput result={result} grade={selectedGrade!} dayPeriods={dayPeriods} />}
+        {result && <section className="panel result-panel">
+          <div className="section-heading result-section-heading">
+            <h2>3. 결과표</h2>
+          </div>
+          <ScheduleOutput result={result} dayPeriods={dayPeriods} />
         </section>}
       </main>
 
-      <footer>입력한 시간표는 서버로 전송하지 않으며, 저장한 시간표는 이 브라우저에만 보관합니다.</footer>
       {guideStep !== null && (
         <GuideTour
           step={guideStep}
@@ -305,12 +438,11 @@ function App() {
       )}
       {savedModalOpen && (
         <SavedTimetableModal
-          currentSources={sources}
           savedTimetables={savedTimetables}
           onClose={() => setSavedModalOpen(false)}
           onLoad={loadSavedTimetable}
-          onSave={saveTimetable}
           onDelete={removeSavedTimetable}
+          onNew={startNewTimetable}
         />
       )}
     </div>
@@ -374,24 +506,12 @@ function SourcePreview({
 
 function SavedTimetableWelcome({
   hasSavedTimetables,
-  onNew,
 }: {
   hasSavedTimetables: boolean;
-  onNew: () => void;
 }) {
   return (
     <div className="saved-editor saved-modal-welcome" role="status">
-      <span className="saved-modal-welcome-icon" aria-hidden="true">{hasSavedTimetables ? "⌁" : "＋"}</span>
-      <span className="section-eyebrow">{hasSavedTimetables ? "저장 목록에서 불러오기" : "처음 사용하시나요?"}</span>
-      <h3>{hasSavedTimetables ? "시간표를 선택하세요." : "새로 입력 버튼을 눌러 시간표를 만드세요."}</h3>
-      <p>
-        {hasSavedTimetables
-          ? "왼쪽 목록을 누르면 미리보기를 확인할 수 있어요. 사용할 시간표라면 미리보기에서 ‘선택’을 눌러 주세요."
-          : "왼쪽 위 ‘새로 입력’ 버튼을 누르면 한글·엑셀 표를 붙여넣어 시간표를 만들 수 있어요."}
-      </p>
-      {!hasSavedTimetables && (
-        <button className="saved-save-button saved-welcome-new-button" type="button" onClick={onNew}>새로 입력</button>
-      )}
+      <h3>{hasSavedTimetables ? "시간표를 선택하세요." : "저장된 시간표가 없습니다."}</h3>
     </div>
   );
 }
@@ -408,16 +528,13 @@ function SavedTimetablePreview({
   return (
     <div className="saved-editor saved-timetable-preview">
       <div className="saved-editor-heading">
-        <span className="section-eyebrow">미리보기</span>
         <h3>{item.name}</h3>
-        <p>이 시간표를 확인한 뒤 사용하려면 아래 ‘선택’ 버튼을 눌러 주세요.</p>
       </div>
       <div className="selected-preview-list">
         {item.sources.map((source) => (
           <article className="selected-preview-card" key={`${item.id}-${source.name}`}>
             <div className="selected-preview-card-heading">
               <strong>{source.name}</strong>
-              <span>전담 시간표</span>
             </div>
             <div className="selected-preview-table-scroll">
               <table className="selected-preview-table">
@@ -434,7 +551,7 @@ function SavedTimetablePreview({
         ))}
       </div>
       <div className="saved-preview-actions">
-        <button className="saved-cancel-button" type="button" onClick={onBack}>다른 시간표 보기</button>
+        <button className="saved-cancel-button" type="button" onClick={onBack}>목록으로</button>
         <button className="saved-save-button" type="button" onClick={onSelect}>선택</button>
       </div>
     </div>
@@ -442,26 +559,19 @@ function SavedTimetablePreview({
 }
 
 function SavedTimetableModal({
-  currentSources,
   savedTimetables,
   onClose,
   onLoad,
-  onSave,
   onDelete,
+  onNew,
 }: {
-  currentSources: SourceTable[];
   savedTimetables: SavedTimetable[];
   onClose: () => void;
   onLoad: (item: SavedTimetable) => void;
-  onSave: (item: SavedTimetable) => boolean;
   onDelete: (item: SavedTimetable) => boolean;
+  onNew: () => void;
 }) {
-  const [draftName, setDraftName] = useState("");
-  const [draftSources, setDraftSources] = useState<SourceTable[]>(() => cloneSourceTables(currentSources));
   const [previewItem, setPreviewItem] = useState<SavedTimetable | null>(null);
-  const [modalView, setModalView] = useState<"welcome" | "create">("welcome");
-  const [inputGuideStep, setInputGuideStep] = useState<SavedInputTourStep | null>(null);
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -471,102 +581,8 @@ function SavedTimetableModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  function handlePaste(event: ClipboardEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const rows = gridFromClipboard(
-      event.clipboardData.getData("text/html"),
-      event.clipboardData.getData("text/plain"),
-    );
-    if (rows.length === 0) {
-      setMessage("표를 읽지 못했어요. 표 전체를 다시 복사해 주세요.");
-      return;
-    }
-
-    const id = crypto.randomUUID();
-    setDraftSources((current) => [
-      ...current,
-      {
-        id,
-        name: `전담 시간표 ${current.length + 1}`,
-        rows,
-        parsed: parseTimetableGrid(rows, id),
-      },
-    ]);
-    setMessage(`시간표를 추가했어요. (${rows.length}행)`);
-  }
-
-  function addBlankSource() {
-    const id = crypto.randomUUID();
-    const rows = createBlankTimetableGrid();
-    setDraftSources((current) => [
-      ...current,
-      {
-        id,
-        name: `직접 입력 시간표 ${current.length + 1}`,
-        rows,
-        parsed: parseTimetableGrid(rows, id),
-      },
-    ]);
-    setMessage("빈 시간표를 추가했어요. 각 칸에 ‘4-1 영어’처럼 입력해 주세요.");
-  }
-
-  function updateCell(sourceId: string, rowIndex: number, columnIndex: number, value: string) {
-    setDraftSources((current) => current.map((source) => {
-      if (source.id !== sourceId) return source;
-      const rows = source.rows.map((row) => [...row]);
-      rows[rowIndex][columnIndex] = value;
-      return { ...source, rows, parsed: parseTimetableGrid(rows, source.id) };
-    }));
-  }
-
-  function renameSource(sourceId: string, name: string) {
-    setDraftSources((current) => current.map((source) => source.id === sourceId ? { ...source, name } : source));
-  }
-
-  function removeSource(sourceId: string) {
-    setDraftSources((current) => current.filter((source) => source.id !== sourceId));
-  }
-
-  function startNewDraft() {
-    setPreviewItem(null);
-    setModalView("create");
-    setInputGuideStep(0);
-    setDraftName("");
-    setDraftSources([]);
-    setMessage("새 시간표를 입력해 주세요.");
-  }
-
   function deleteSavedItem(item: SavedTimetable) {
     if (onDelete(item) && previewItem?.id === item.id) setPreviewItem(null);
-  }
-
-  function showSavedPreview(item: SavedTimetable) {
-    setPreviewItem(item);
-    setModalView("welcome");
-    setMessage("");
-  }
-
-  function saveDraft() {
-    const name = draftName.trim();
-    if (!name) {
-      setMessage("저장할 이름을 먼저 입력해 주세요.");
-      return;
-    }
-    if (draftSources.length === 0) {
-      setMessage("시간표를 하나 이상 넣어 주세요.");
-      return;
-    }
-
-    const saved = onSave({
-      id: crypto.randomUUID(),
-      name,
-      savedAt: Date.now(),
-      sources: draftSources.map((source) => ({
-        name: source.name,
-        rows: source.rows.map((row) => [...row]),
-      })),
-    });
-    setMessage(saved ? "저장했어요. 왼쪽 목록에서 미리본 뒤 선택할 수 있습니다." : "저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.");
   }
 
   return (
@@ -579,11 +595,7 @@ function SavedTimetableModal({
     >
       <section className="saved-modal" role="dialog" aria-modal="true" aria-labelledby="saved-modal-title">
         <header className="saved-modal-header">
-          <div>
-            <span>시간표 보관함</span>
-            <h2 id="saved-modal-title">시간표 만들기</h2>
-            <p>전담 시간표를 입력하고 이름을 붙여 저장해 두세요.</p>
-          </div>
+          <h2 id="saved-modal-title">{previewItem ? "시간표 미리보기" : "저장 목록"}</h2>
           <button className="saved-modal-close" type="button" onClick={onClose} aria-label="저장 목록 닫기">×</button>
         </header>
 
@@ -594,10 +606,10 @@ function SavedTimetableModal({
                 <strong>저장 목록</strong>
                 <span>{savedTimetables.length}개</span>
               </div>
-              <button type="button" onClick={startNewDraft}>새로 입력</button>
+              <button type="button" onClick={onNew}>새로 입력</button>
             </div>
             {savedTimetables.length === 0 ? (
-              <p className="saved-list-empty">아직 저장한 시간표가 없어요.</p>
+              <p className="saved-list-empty">저장된 시간표가 없습니다.</p>
             ) : (
               <div className="saved-list-items">
                 {savedTimetables.map((item) => (
@@ -606,7 +618,7 @@ function SavedTimetableModal({
                       className={`saved-list-load${previewItem?.id === item.id ? " previewing" : ""}`}
                       type="button"
                       aria-label={`${item.name} 미리보기`}
-                      onClick={() => showSavedPreview(item)}
+                      onClick={() => setPreviewItem(item)}
                     >
                       <strong>{item.name}</strong>
                       <span>{formatSavedDate(item.savedAt)} · {item.sources.length}개 표</span>
@@ -624,84 +636,15 @@ function SavedTimetableModal({
               onBack={() => setPreviewItem(null)}
               onSelect={() => onLoad(previewItem)}
             />
-          ) : modalView === "create" ? <div className="saved-editor">
-            <div className="saved-editor-heading">
-              <label>
-                <span>저장할 이름</span>
-                <input
-                  data-guide="saved-name-input"
-                  value={draftName}
-                  onChange={(event) => setDraftName(event.target.value)}
-                  placeholder="예: 4학년 전담 시간표"
-                  maxLength={60}
-                />
-              </label>
-              <p>현재 화면에 입력된 시간표가 있으면 미리 담아 두었어요.</p>
-            </div>
-
-            <div className="saved-input-area" data-guide="saved-input-area" aria-label="전담 시간표 입력">
-              <div
-                className="paste-zone saved-paste-zone"
-                tabIndex={0}
-                role="textbox"
-                aria-label="저장할 전담 시간표 붙여넣기"
-                onPaste={handlePaste}
-              >
-                <span className="paste-icon" aria-hidden="true">⌘</span>
-                <strong>클릭한 뒤 Ctrl + V</strong>
-                <span>시간표가 여러 개라면 이어서 붙여넣으세요.</span>
-              </div>
-              <div className="input-alternative">
-                <span>또는</span>
-                <button type="button" onClick={addBlankSource}>빈 시간표에 직접 입력</button>
-              </div>
-            </div>
-            {message && <p className="saved-message" role="status">{message}</p>}
-
-            <div className="source-list saved-source-list">
-              {draftSources.map((source) => (
-                <SourcePreview
-                  key={source.id}
-                  source={source}
-                  onCellChange={updateCell}
-                  onNameChange={renameSource}
-                  onRemove={removeSource}
-                />
-              ))}
-              {draftSources.length === 0 && <p className="saved-editor-empty">시간표를 붙여넣거나 직접 입력해 주세요.</p>}
-            </div>
-
-            <div className="saved-editor-actions">
-              <button className="saved-cancel-button" type="button" onClick={onClose}>닫기</button>
-              <button className="saved-save-button" data-guide="saved-save-button" type="button" onClick={saveDraft} disabled={!draftName.trim() || draftSources.length === 0}>이름을 정하고 저장</button>
-            </div>
-          </div> : (
+          ) : (
             <SavedTimetableWelcome
               hasSavedTimetables={savedTimetables.length > 0}
-              onNew={startNewDraft}
             />
           )}
         </div>
       </section>
-      {modalView === "create" && inputGuideStep !== null && (
-        <SavedInputTour
-          step={inputGuideStep}
-          hasName={draftName.trim().length > 0}
-          hasTimetable={draftSources.length > 0}
-          onStepChange={setInputGuideStep}
-          onClose={() => setInputGuideStep(null)}
-        />
-      )}
     </div>
   );
-}
-
-function cloneSourceTables(sourceTables: SourceTable[]): SourceTable[] {
-  return sourceTables.map((source) => {
-    const id = crypto.randomUUID();
-    const rows = source.rows.map((row) => [...row]);
-    return { id, name: source.name, rows, parsed: parseTimetableGrid(rows, id) };
-  });
 }
 
 function formatSavedDate(value: number): string {
@@ -806,10 +749,8 @@ function DayPeriodSelector({
     <div className="day-period-selector" data-guide="day-periods">
       <div className="day-period-heading">
         <div>
-          <strong>요일별 수업 교시</strong>
-          <p>가능한 교시를 누르세요. 여러 교시를 드래그해서 한 번에 선택하거나 지울 수 있어요.</p>
+          <strong>배정할 수업 교시 선택</strong>
         </div>
-        <span>선택한 교시에서만 외부강의를 배정합니다.</span>
       </div>
       <div className="day-period-grid" role="group" aria-label="요일별 외부강의 가능 교시 선택">
         <div className="period-corner">교시</div>
@@ -869,11 +810,9 @@ function DayPeriodSelector({
 
 function ScheduleOutput({
   result,
-  grade,
   dayPeriods,
 }: {
   result: ScheduleResult;
-  grade: number;
   dayPeriods: DayPeriodSelection;
 }) {
   const [solutionIndex, setSolutionIndex] = useState(0);
@@ -914,12 +853,6 @@ function ScheduleOutput({
 
   return (
     <div className="result-box success" data-guide="schedule-result">
-      <div className="result-heading">
-        <div>
-          <span>편성 완료</span>
-          <h3>{grade}학년 외부강의 시간표</h3>
-        </div>
-      </div>
       {copyStatus !== "idle" && (
         <p className={`copy-result-status ${copyStatus}`} role="status">
           {copyStatus === "success"
