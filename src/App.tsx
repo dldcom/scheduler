@@ -396,36 +396,6 @@ function SavedTimetableWelcome({
   );
 }
 
-function SavedInputGuide({ onOpenGuide }: { onOpenGuide: () => void }) {
-  return (
-    <div className="saved-input-guide" aria-label="한글과 엑셀 시간표 붙여넣기 방법">
-      <div className="saved-input-guide-heading">
-        <div>
-          <span>빠른 입력</span>
-          <strong>한글·엑셀에서 표를 그대로 복사해 붙여넣으세요</strong>
-        </div>
-        <button type="button" onClick={onOpenGuide}>이 과정을 다시 보기</button>
-      </div>
-      <div className="saved-input-guide-flow">
-        <div className="saved-input-guide-step">
-          <b>1</b>
-          <div><strong>표 전체 선택</strong><span>한글·엑셀에서 Ctrl + C</span></div>
-        </div>
-        <span className="saved-input-guide-arrow" aria-hidden="true">→</span>
-        <div className="saved-input-guide-step">
-          <b>2</b>
-          <div><strong>아래 칸 클릭</strong><span>붙여넣기 칸을 선택</span></div>
-        </div>
-        <span className="saved-input-guide-arrow" aria-hidden="true">→</span>
-        <div className="saved-input-guide-step">
-          <b>3</b>
-          <div><strong>Ctrl + V</strong><span>표가 자동으로 들어와요</span></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SavedTimetablePreview({
   item,
   onBack,
@@ -655,7 +625,6 @@ function SavedTimetableModal({
               onSelect={() => onLoad(previewItem)}
             />
           ) : modalView === "create" ? <div className="saved-editor">
-            <SavedInputGuide onOpenGuide={() => setInputGuideStep(0)} />
             <div className="saved-editor-heading">
               <label>
                 <span>저장할 이름</span>
@@ -670,21 +639,22 @@ function SavedTimetableModal({
               <p>현재 화면에 입력된 시간표가 있으면 미리 담아 두었어요.</p>
             </div>
 
-            <div
-              className="paste-zone saved-paste-zone"
-              data-guide="saved-paste-zone"
-              tabIndex={0}
-              role="textbox"
-              aria-label="저장할 전담 시간표 붙여넣기"
-              onPaste={handlePaste}
-            >
-              <span className="paste-icon" aria-hidden="true">⌘</span>
-              <strong>클릭한 뒤 Ctrl + V</strong>
-              <span>시간표가 여러 개라면 이어서 붙여넣으세요.</span>
-            </div>
-            <div className="input-alternative">
-              <span>또는</span>
-              <button type="button" onClick={addBlankSource}>빈 시간표에 직접 입력</button>
+            <div className="saved-input-area" data-guide="saved-input-area" aria-label="전담 시간표 입력">
+              <div
+                className="paste-zone saved-paste-zone"
+                tabIndex={0}
+                role="textbox"
+                aria-label="저장할 전담 시간표 붙여넣기"
+                onPaste={handlePaste}
+              >
+                <span className="paste-icon" aria-hidden="true">⌘</span>
+                <strong>클릭한 뒤 Ctrl + V</strong>
+                <span>시간표가 여러 개라면 이어서 붙여넣으세요.</span>
+              </div>
+              <div className="input-alternative">
+                <span>또는</span>
+                <button type="button" onClick={addBlankSource}>빈 시간표에 직접 입력</button>
+              </div>
             </div>
             {message && <p className="saved-message" role="status">{message}</p>}
 
@@ -716,6 +686,7 @@ function SavedTimetableModal({
       {modalView === "create" && inputGuideStep !== null && (
         <SavedInputTour
           step={inputGuideStep}
+          hasName={draftName.trim().length > 0}
           hasTimetable={draftSources.length > 0}
           onStepChange={setInputGuideStep}
           onClose={() => setInputGuideStep(null)}

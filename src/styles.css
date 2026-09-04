@@ -414,26 +414,14 @@ main { width: min(1200px, calc(100% - 36px)); margin: 28px auto 72px; display: g
 .saved-modal-welcome h3 { margin: 0; color: var(--ink); font-size: 23px; }
 .saved-modal-welcome p { max-width: 450px; margin: 10px 0 0; color: var(--muted); font-size: 15px; line-height: 1.65; }
 .saved-welcome-new-button { margin-top: 22px; }
-.saved-input-guide { margin-bottom: 20px; padding: 16px 17px; border: 1px solid #b9d0f4; border-radius: 10px; background: #eef5ff; }
-.saved-input-guide-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
-.saved-input-guide-heading > div { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-.saved-input-guide-heading span { flex: 0 0 auto; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
-.saved-input-guide-heading strong { color: var(--ink); font-size: 16px; }
-.saved-input-guide-heading button { flex: 0 0 auto; padding: 4px 7px; border: 1px solid #9db8e7; border-radius: 6px; background: white; color: var(--accent-strong); font-size: 12px; font-weight: 700; }
-.saved-input-guide-heading button:hover { background: #e2edff; }
-.saved-input-guide-flow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.saved-input-guide-step { display: flex; min-width: 0; align-items: center; gap: 8px; }
-.saved-input-guide-step > b { display: grid; flex: 0 0 auto; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: white; font-size: 13px; }
-.saved-input-guide-step > div { display: grid; gap: 2px; min-width: 0; }
-.saved-input-guide-step strong { color: var(--ink); font-size: 13px; white-space: nowrap; }
-.saved-input-guide-step span { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.saved-input-guide-arrow { flex: 0 0 auto; color: #7297d5; font-size: 18px; font-weight: 700; }
 .saved-editor-heading { display: grid; gap: 8px; margin-bottom: 16px; }
 .saved-editor-heading label { display: grid; gap: 7px; }
 .saved-editor-heading label > span { color: var(--ink); font-size: 15px; font-weight: 700; }
 .saved-editor-heading input { width: min(100%, 430px); height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: white; color: var(--ink); font-size: 16px; }
 .saved-editor-heading input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgba(37, 99, 235, .1); }
 .saved-editor-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+.saved-input-area { display: grid; gap: 14px; }
+.saved-input-area .input-alternative { margin-top: 0; }
 .saved-paste-zone { min-height: 132px; }
 .saved-source-list { margin-top: 18px; }
 .saved-message { margin: 12px 0 0; color: var(--accent-strong); font-size: 14px; font-weight: 700; }
@@ -523,10 +511,6 @@ footer { padding: 0 20px 35px; color: #727780; text-align: center; font-size: 14
   .saved-list-panel { max-height: 190px; padding: 14px 15px; border-right: 0; border-bottom: 1px solid var(--line); }
   .saved-editor { max-height: none; overflow: visible; padding: 19px 15px 18px; }
   .saved-modal-welcome { min-height: 280px; }
-  .saved-input-guide-flow { align-items: stretch; flex-direction: column; gap: 9px; }
-  .saved-input-guide-arrow { display: none; }
-  .saved-input-guide-heading { flex-direction: column; gap: 8px; }
-  .saved-input-guide-heading > div { align-items: flex-start; flex-direction: column; gap: 3px; }
   .saved-editor-actions { position: sticky; bottom: 0; }
   .hero { align-items: flex-start; padding-top: 22px; padding-bottom: 22px; }
   .timetable-selection-heading { align-items: flex-start; }

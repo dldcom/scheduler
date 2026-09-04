@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import CopyExample from "./CopyExample";
 
 export type TourStep = 0 | 1 | 2 | 3 | 4;
 
@@ -159,6 +160,7 @@ export default function GuideTour({
         </div>
         <h3>{content.title}</h3>
         <p>{content.description}</p>
+        {step === 0 && <CopyExample />}
         <div className="guide-actions">
           {step === 0 ? (
             <button className="guide-secondary" type="button" onClick={onOpenSaved}>저장 목록 열기</button>

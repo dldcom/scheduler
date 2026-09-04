@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import CopyExample from "./CopyExample";
 
 export type SavedInputTourStep = 0 | 1 | 2;
 
 type SavedInputTourProps = {
   step: SavedInputTourStep;
+  hasName: boolean;
   hasTimetable: boolean;
   onStepChange: (step: SavedInputTourStep) => void;
   onClose: () => void;
@@ -18,16 +20,16 @@ type TargetRect = {
 
 const STEPS: Record<SavedInputTourStep, { target: string; label: string; title: string; description: string }> = {
   0: {
-    target: "saved-paste-zone",
+    target: "saved-name-input",
     label: "1 / 3",
-    title: "표를 복사해 붙여넣기",
-    description: "한글이나 엑셀에서 시간표의 셀을 모두 선택해 Ctrl+C를 누른 뒤, 빨간 테두리 안의 붙여넣기 칸을 클릭하고 Ctrl+V를 눌러 주세요.",
+    title: "시간표 이름을 입력하세요",
+    description: "나중에 저장 목록에서 쉽게 찾을 수 있도록 시간표 이름을 입력해 주세요. 예: 4학년 전담 시간표",
   },
   1: {
-    target: "saved-name-input",
+    target: "saved-input-area",
     label: "2 / 3",
-    title: "시간표 이름 정하기",
-    description: "나중에 찾기 쉽도록 학년이나 용도를 넣어 이름을 정해 주세요. 예: 4학년 전담 시간표",
+    title: "전담 시간표 입력하기",
+    description: "한글이나 엑셀에서 표 전체를 복사해 위 칸에 붙여넣으세요. 전담 시간표가 여러 개라면 표를 하나씩 추가해 계속 붙여넣으면 됩니다. 직접 입력하려면 아래 ‘빈 시간표에 직접 입력’을 눌러 주세요.",
   },
   2: {
     target: "saved-save-button",
@@ -37,7 +39,13 @@ const STEPS: Record<SavedInputTourStep, { target: string; label: string; title: 
   },
 };
 
-export default function SavedInputTour({ step, hasTimetable, onStepChange, onClose }: SavedInputTourProps) {
+export default function SavedInputTour({
+  step,
+  hasName,
+  hasTimetable,
+  onStepChange,
+  onClose,
+}: SavedInputTourProps) {
   const content = STEPS[step];
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [tooltipHeight, setTooltipHeight] = useState(250);
@@ -102,7 +110,7 @@ export default function SavedInputTour({ step, hasTimetable, onStepChange, onClo
     display: outsideViewport ? "none" : undefined,
   };
   const tooltipStyle = getTooltipStyle(targetRect, tooltipHeight);
-  const canContinue = step !== 0 || hasTimetable;
+  const canContinue = step === 0 ? hasName : step === 1 ? hasTimetable : true;
 
   return (
     <div className="guide-tour saved-input-tour" aria-live="polite">
@@ -115,6 +123,7 @@ export default function SavedInputTour({ step, hasTimetable, onStepChange, onClo
         </div>
         <h3>{content.title}</h3>
         <p>{content.description}</p>
+        {step === 1 && <CopyExample />}
         <div className="guide-actions">
           {step > 0 ? (
             <button className="guide-secondary" type="button" onClick={() => onStepChange((step - 1) as SavedInputTourStep)}>이전</button>
@@ -125,7 +134,8 @@ export default function SavedInputTour({ step, hasTimetable, onStepChange, onClo
             <button className="guide-primary" type="button" onClick={onClose}>확인</button>
           )}
         </div>
-        {step === 0 && !hasTimetable && <small>시간표를 붙여넣거나 빈 시간표를 추가하면 다음 버튼이 켜집니다.</small>}
+        {step === 0 && !hasName && <small>시간표 이름을 입력하면 다음 단계로 갈 수 있습니다.</small>}
+        {step === 1 && !hasTimetable && <small>표를 붙여넣거나 빈 시간표를 추가하면 다음 단계로 갈 수 있습니다.</small>}
       </aside>
     </div>
   );
