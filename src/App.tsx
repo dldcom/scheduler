@@ -31,6 +31,61 @@ const EMPTY_DAY_PERIODS: DayPeriodSelection = {
   "금": [],
 };
 
+/**
+ * 붙여넣은 표를 하나의 편집 가능한 표로 합칩니다.
+ * 같은 위치의 내용은 줄바꿈으로 이어 붙이되, 같은 값은 한 번만 남깁니다.
+ */
+function mergeTimetableRows(grids: string[][][]): string[][] {
+  const rowCount = Math.max(0, ...grids.map((grid) => grid.length));
+  const columnCount = Math.max(
+    0,
+    ...grids.flatMap((grid) => grid.map((row) => row.length)),
+  );
+  const merged = Array.from({ length: rowCount }, () =>
+    Array.from({ length: columnCount }, () => ""),
+  );
+
+  grids.forEach((grid) => {
+    grid.forEach((row, rowIndex) => {
+      row.forEach((value, columnIndex) => {
+        const trimmed = value?.trim() ?? "";
+        if (!trimmed) return;
+
+        const values = [merged[rowIndex][columnIndex], trimmed]
+          .flatMap((item) => item.replace(/\r\n?/g, "\n").split("\n"))
+          .map((item) => item.trim())
+          .filter(Boolean);
+        merged[rowIndex][columnIndex] = [...new Set(values)].join("\n");
+      });
+    });
+  });
+
+  return merged;
+}
+
+function mergeSourceTables(sourceTables: SourceTable[]): SourceTable | null {
+  if (sourceTables.length === 0) return null;
+
+  const first = sourceTables[0];
+  const rows = mergeTimetableRows(sourceTables.map((source) => source.rows));
+  return {
+    id: first.id,
+    name: first.name || "전담 시간표",
+    rows,
+    parsed: parseTimetableGrid(rows, first.id),
+  };
+}
+
+function getNextTimetableName(savedTimetables: SavedTimetable[]): string {
+  const baseName = "전담 시간표";
+  const names = new Set(savedTimetables.map((item) => item.name.trim().toLocaleLowerCase()));
+  if (!names.has(baseName.toLocaleLowerCase())) return baseName;
+
+  let suffix = 2;
+  while (names.has(`${baseName} ${suffix}`.toLocaleLowerCase())) suffix += 1;
+  return `${baseName} ${suffix}`;
+}
+
 function App() {
   const [sources, setSources] = useState<SourceTable[]>([]);
   const [selectedTimetableId, setSelectedTimetableId] = useState<string | null>(null);
@@ -43,8 +98,11 @@ function App() {
   const [selectionMessage, setSelectionMessage] = useState("");
   const [timetableMessage, setTimetableMessage] = useState("");
   const [guideStep, setGuideStep] = useState<TourStep | null>(null);
+  const [guideSteps, setGuideSteps] = useState<TourStep[]>([0, 1, 2, 3, 4]);
   const [savedTimetables, setSavedTimetables] = useState<SavedTimetable[]>([]);
   const [savedModalOpen, setSavedModalOpen] = useState(false);
+  const [saveNameDialogOpen, setSaveNameDialogOpen] = useState(false);
+  const [saveNameDraft, setSaveNameDraft] = useState("");
 
   const lessons = useMemo(
     () => consolidateLessons(sources.flatMap((source) => source.parsed.lessons)),
@@ -52,6 +110,20 @@ function App() {
   );
   const classes = useMemo(() => getClasses(lessons), [lessons]);
   const grades = useMemo(() => [...new Set(classes.map((item) => item.grade))], [classes]);
+  const previewSource = sources[0];
+  const normalizedSaveName = saveNameDraft.trim().toLocaleLowerCase();
+  const duplicateSaveTimetable = normalizedSaveName.length > 0
+    ? savedTimetables.find((saved) => saved.name.trim().toLocaleLowerCase() === normalizedSaveName)
+    : undefined;
+  const duplicateSaveName = Boolean(duplicateSaveTimetable);
+  const duplicateIsCurrent = duplicateSaveTimetable?.id === selectedTimetableId;
+  const duplicateSaveBlocked = duplicateSaveName && !duplicateIsCurrent;
+
+  function openGuide(steps: TourStep[]) {
+    setGuideSteps(steps);
+    setGuideStep(steps[0]);
+  }
+
   useEffect(() => {
     const saved = readSavedTimetables();
     setSavedTimetables(saved);
@@ -74,7 +146,7 @@ function App() {
   }, [guideStep, result]);
 
   function saveTimetable(item: SavedTimetable): string | null {
-    const existing = savedTimetables.find((saved) => saved.id === item.id || saved.name === item.name);
+    const existing = savedTimetables.find((saved) => saved.id === item.id);
     const savedItem = existing ? { ...item, id: existing.id } : item;
     const next = [savedItem, ...savedTimetables.filter((saved) => saved.id !== savedItem.id)];
     if (!writeSavedTimetables(next)) return null;
@@ -90,25 +162,8 @@ function App() {
     return true;
   }
 
-  function startNewTimetable() {
-    setSources([]);
-    setSelectedTimetableId(null);
-    setTimetableName("");
-    setSelectedGrade(null);
-    setDayPeriods(EMPTY_DAY_PERIODS);
-    setResult(null);
-    setSelectionMessage("");
-    setTimetableMessage("");
-    setSavedModalOpen(false);
-    window.setTimeout(() => {
-      const input = document.querySelector<HTMLElement>('[data-guide="timetable-input"] .paste-zone');
-      input?.scrollIntoView({ behavior: "smooth", block: "center" });
-      input?.focus();
-    }, 80);
-  }
-
   function loadSavedTimetable(item: SavedTimetable) {
-    const nextSources = item.sources.map((source, index) => {
+    const sourceTables = item.sources.map((source, index) => {
       const id = crypto.randomUUID();
       const rows = source.rows.map((row) => [...row]);
       return {
@@ -118,7 +173,8 @@ function App() {
         parsed: parseTimetableGrid(rows, id),
       };
     });
-    setSources(nextSources);
+    const mergedSource = mergeSourceTables(sourceTables);
+    setSources(mergedSource ? [mergedSource] : []);
     setSelectedTimetableId(item.id);
     setTimetableName(item.name);
     setSelectedGrade(null);
@@ -154,36 +210,40 @@ function App() {
       return;
     }
 
-    const id = crypto.randomUUID();
-    setSources((current) => [
-      ...current,
-      {
-        id,
-        name: `전담 시간표 ${current.length + 1}`,
-        rows,
-        parsed: parseTimetableGrid(rows, id),
-      },
-    ]);
+    const incomingId = crypto.randomUUID();
+    const incoming = {
+      id: incomingId,
+      name: "전담 시간표",
+      rows,
+      parsed: parseTimetableGrid(rows, incomingId),
+    };
+    setSources((current) => {
+      const mergedSource = mergeSourceTables([...current, incoming]);
+      return mergedSource ? [mergedSource] : [];
+    });
     setSelectedTimetableId(null);
-    setTimetableName((current) => current || "전담 시간표");
+    setTimetableName("");
     setSelectionMessage("");
-    setTimetableMessage(`시간표를 추가했어요. (${rows.length}행)`);
+    setTimetableMessage("미리보기에 반영했어요.");
   }
 
   function addBlankTimetable() {
+    if (sources.length > 0) {
+      setTimetableMessage("미리보기 표에서 바로 수정해 주세요.");
+      document.querySelector<HTMLElement>(".timetable-preview")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     const id = crypto.randomUUID();
     const rows = createBlankTimetableGrid();
-    setSources((current) => [
-      ...current,
-      {
-        id,
-        name: `직접 입력 시간표 ${current.length + 1}`,
-        rows,
-        parsed: parseTimetableGrid(rows, id),
-      },
-    ]);
+    setSources([{
+      id,
+      name: "전담 시간표",
+      rows,
+      parsed: parseTimetableGrid(rows, id),
+    }]);
     setSelectedTimetableId(null);
-    setTimetableName((current) => current || "전담 시간표");
+    setTimetableName("");
     setSelectionMessage("");
     setTimetableMessage("빈 표를 만들었어요. 각 칸에 내용을 입력해 주세요.");
   }
@@ -206,22 +266,36 @@ function App() {
 
   function removeTimetableSource(sourceId: string) {
     setSources((current) => current.filter((source) => source.id !== sourceId));
+    setSelectedTimetableId(null);
+    setTimetableName("");
     setSelectionMessage("");
   }
 
-  function saveCurrentTimetable() {
+  function openSaveNameDialog() {
     if (sources.length === 0) {
       setTimetableMessage("시간표를 먼저 입력해 주세요.");
       return;
     }
-    const name = timetableName.trim();
+    setSaveNameDraft(
+      selectedTimetableId
+        ? timetableName.trim()
+        : getNextTimetableName(savedTimetables),
+    );
+    setSelectionMessage("");
+    setSaveNameDialogOpen(true);
+  }
+
+  function saveNamedTimetable() {
+    const name = saveNameDraft.trim();
     if (!name) {
-      setTimetableMessage("시간표 이름을 입력해 주세요.");
+      return;
+    }
+    if (duplicateSaveBlocked) {
       return;
     }
 
     const savedId = saveTimetable({
-      id: selectedTimetableId ?? crypto.randomUUID(),
+      id: duplicateIsCurrent ? duplicateSaveTimetable.id : crypto.randomUUID(),
       name,
       savedAt: Date.now(),
       sources: sources.map((source) => ({
@@ -235,8 +309,10 @@ function App() {
     }
 
     setSelectedTimetableId(savedId);
+    setTimetableName(name);
     setSelectionMessage("시간표가 저장되었습니다.");
     setTimetableMessage("");
+    setSaveNameDialogOpen(false);
   }
 
   function toggleDayPeriod(day: Day, period: number) {
@@ -284,13 +360,13 @@ function App() {
             <div>
               <h2>1. 전담 시간표 선택하기</h2>
             </div>
+            <button className="help-button selection-help-button" type="button" onClick={() => openGuide([0])}>사용 방법</button>
           </div>
 
           <div className="selection-library-row">
             <button className="selection-open-button selection-load-button" type="button" onClick={() => setSavedModalOpen(true)}>
               저장 목록에서 불러오기
             </button>
-            <button className="help-button selection-help-button" type="button" onClick={() => setGuideStep(0)}>사용방법</button>
           </div>
 
           <div className="timetable-input-area" data-guide="timetable-input">
@@ -312,38 +388,23 @@ function App() {
           </div>
           {timetableMessage && <p className="paste-message" role="status">{timetableMessage}</p>}
 
-          {sources.length > 0 && (
+          {previewSource && (
             <div className="timetable-preview" data-guide="timetable-preview">
               <div className="timetable-preview-heading">
                 <h3>미리보기</h3>
-                <span>{sources.length}개 표</span>
               </div>
               <div className="source-list">
-                {sources.map((source) => (
-                  <SourcePreview
-                    key={source.id}
-                    source={source}
-                    onCellChange={updateTimetableCell}
-                    onNameChange={renameTimetableSource}
-                    onRemove={removeTimetableSource}
-                  />
-                ))}
+                <SourcePreview
+                  source={previewSource}
+                  onCellChange={updateTimetableCell}
+                  onNameChange={renameTimetableSource}
+                  onRemove={removeTimetableSource}
+                />
               </div>
               <div className="timetable-save-row">
-                <label>
-                  <span>시간표 이름</span>
-                  <input
-                    value={timetableName}
-                    onChange={(event) => {
-                      setTimetableName(event.target.value);
-                      setSelectionMessage("");
-                    }}
-                    placeholder="예: 4학년 전담 시간표"
-                    maxLength={60}
-                  />
-                </label>
-                <button className="saved-save-button" type="button" onClick={saveCurrentTimetable}>
-                  시간표 목록에 저장하기
+                <RecognizedClassSummary lessons={previewSource.parsed.lessons} />
+                <button className="saved-save-button" type="button" onClick={openSaveNameDialog}>
+                  시간표 저장하기
                 </button>
               </div>
               {selectionMessage && <p className="selection-status" role="status">{selectionMessage}</p>}
@@ -352,10 +413,11 @@ function App() {
         </section>
 
         {sources.length > 0 && <section className="panel schedule-panel">
-          <div className="section-heading">
+          <div className="section-heading schedule-section-heading">
             <div>
               <h2>2. 배정 조건 정하기</h2>
             </div>
+            <button className="help-button schedule-help-button" type="button" onClick={() => openGuide([1, 2])}>사용 방법</button>
           </div>
 
           <div className="schedule-grade-picker" data-guide="grade-picker">
@@ -426,6 +488,7 @@ function App() {
       {guideStep !== null && (
         <GuideTour
           step={guideStep}
+          steps={guideSteps}
           onStepChange={setGuideStep}
           onClose={() => setGuideStep(null)}
           onOpenSaved={() => {
@@ -442,8 +505,51 @@ function App() {
           onClose={() => setSavedModalOpen(false)}
           onLoad={loadSavedTimetable}
           onDelete={removeSavedTimetable}
-          onNew={startNewTimetable}
         />
+      )}
+      {saveNameDialogOpen && (
+        <div
+          className="save-name-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSaveNameDialogOpen(false);
+          }}
+        >
+          <section className="save-name-dialog" role="dialog" aria-modal="true" aria-labelledby="save-name-title">
+            <h2 id="save-name-title">시간표 저장</h2>
+            <label>
+              <span>시간표 이름</span>
+              <input
+                autoFocus
+                value={saveNameDraft}
+                aria-invalid={duplicateSaveName}
+                aria-describedby={duplicateSaveName ? "save-name-warning" : undefined}
+                onChange={(event) => setSaveNameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") saveNamedTimetable();
+                  if (event.key === "Escape") setSaveNameDialogOpen(false);
+                }}
+                maxLength={60}
+              />
+            </label>
+            {duplicateSaveBlocked && (
+              <p className="save-name-warning" id="save-name-warning" role="alert">
+                같은 이름의 시간표가 이미 있어요. 다른 이름을 입력해 주세요.
+              </p>
+            )}
+            {duplicateIsCurrent && (
+              <p className="save-name-notice" id="save-name-warning" role="status">
+                현재 저장된 시간표를 같은 이름으로 업데이트합니다.
+              </p>
+            )}
+            <div className="save-name-actions">
+              <button className="saved-cancel-button" type="button" onClick={() => setSaveNameDialogOpen(false)}>취소</button>
+              <button className="saved-save-button" type="button" onClick={saveNamedTimetable} disabled={!saveNameDraft.trim() || duplicateSaveBlocked}>
+                {duplicateIsCurrent ? "업데이트" : "저장"}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );
@@ -479,15 +585,42 @@ function SourcePreview({
           <tbody>
             {source.rows.map((row, rowIndex) => (
               <tr key={rowIndex}>
-                {row.map((value, columnIndex) => (
-                  <td key={columnIndex} className={warningCells.has(`${rowIndex}:${columnIndex}`) ? "warning-cell" : ""}>
+                {row.map((value, columnIndex) => {
+                  const isDayHeader = rowIndex === 0;
+                  const isPeriodHeader = columnIndex === 0;
+                  const headerClass = isDayHeader && isPeriodHeader
+                    ? "preview-corner-cell"
+                    : isDayHeader
+                      ? "preview-day-cell"
+                      : isPeriodHeader
+                        ? "preview-period-cell"
+                        : "";
+                  const cellClass = [
+                    warningCells.has(`${rowIndex}:${columnIndex}`) ? "warning-cell" : "",
+                    headerClass,
+                  ].filter(Boolean).join(" ");
+                  const editor = (
                     <textarea
                       value={value}
                       aria-label={`${rowIndex + 1}행 ${columnIndex + 1}열`}
                       onChange={(event) => onCellChange(source.id, rowIndex, columnIndex, event.target.value)}
                     />
-                  </td>
-                ))}
+                  );
+
+                  if (headerClass) {
+                    return (
+                      <th
+                        key={columnIndex}
+                        className={cellClass}
+                        scope={isDayHeader && !isPeriodHeader ? "col" : isPeriodHeader && !isDayHeader ? "row" : undefined}
+                      >
+                        {editor}
+                      </th>
+                    );
+                  }
+
+                  return <td key={columnIndex} className={cellClass}>{editor}</td>;
+                })}
               </tr>
             ))}
           </tbody>
@@ -501,6 +634,79 @@ function SourcePreview({
         </ul>
       )}
     </details>
+  );
+}
+
+function RecognizedClassSummary({
+  lessons,
+}: {
+  lessons: SourceTable["parsed"]["lessons"];
+}) {
+  const classMap = new Map<string, {
+    grade: number;
+    classNumber: number;
+    subjects: Map<string, Set<string>>;
+  }>();
+
+  lessons.forEach((lesson) => {
+    const key = `${lesson.grade}-${lesson.classNumber}`;
+    const existing = classMap.get(key);
+    if (existing) {
+      const slots = existing.subjects.get(lesson.subject) ?? new Set<string>();
+      slots.add(`${lesson.day}|${lesson.period}`);
+      existing.subjects.set(lesson.subject, slots);
+      return;
+    }
+    classMap.set(key, {
+      grade: lesson.grade,
+      classNumber: lesson.classNumber,
+      subjects: new Map([[lesson.subject, new Set([`${lesson.day}|${lesson.period}`])]]),
+    });
+  });
+
+  const recognizedClasses = [...classMap.values()].sort(
+    (a, b) => a.grade - b.grade || a.classNumber - b.classNumber,
+  );
+
+  return (
+    <div className="recognized-class-summary">
+      <div className="recognized-summary-heading">
+        <strong>인식한 반·과목</strong>
+        <span>{recognizedClasses.length}개 반</span>
+      </div>
+      {recognizedClasses.length > 0 ? (
+        <div className="recognized-class-list">
+          {recognizedClasses.map((item) => (
+            <article className="recognized-class-card" key={`${item.grade}-${item.classNumber}`}>
+              <strong className="recognized-class-label">{item.grade}-{item.classNumber}</strong>
+              <div className="recognized-subject-list">
+                {[...item.subjects.entries()].map(([subject, slots]) => {
+                  const sortedSlots = [...slots].sort((a, b) => {
+                    const [aDay, aPeriod] = a.split("|");
+                    const [bDay, bPeriod] = b.split("|");
+                    return DAYS.indexOf(aDay as Day) - DAYS.indexOf(bDay as Day)
+                      || Number(aPeriod) - Number(bPeriod);
+                  });
+                  return (
+                    <div className="recognized-subject-row" key={`${item.grade}-${item.classNumber}-${subject}`}>
+                      <strong className="recognized-subject-name">{subject}</strong>
+                      <span className="recognized-slot-list">
+                        {sortedSlots.map((slot) => {
+                          const [day, period] = slot.split("|");
+                          return <span className="recognized-slot" key={slot}>{day} {period}교시</span>;
+                        })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="recognized-summary-empty">아직 인식한 수업이 없습니다.</p>
+      )}
+    </div>
   );
 }
 
@@ -525,30 +731,53 @@ function SavedTimetablePreview({
   onBack: () => void;
   onSelect: () => void;
 }) {
+  const mergedRows = mergeTimetableRows(item.sources.map((source) => source.rows));
   return (
     <div className="saved-editor saved-timetable-preview">
       <div className="saved-editor-heading">
         <h3>{item.name}</h3>
       </div>
       <div className="selected-preview-list">
-        {item.sources.map((source) => (
-          <article className="selected-preview-card" key={`${item.id}-${source.name}`}>
-            <div className="selected-preview-card-heading">
-              <strong>{source.name}</strong>
-            </div>
-            <div className="selected-preview-table-scroll">
-              <table className="selected-preview-table">
-                <tbody>
-                  {source.rows.map((row, rowIndex) => (
-                    <tr key={rowIndex}>
-                      {row.map((value, columnIndex) => <td key={columnIndex}>{value}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        ))}
+        <article className="selected-preview-card" key={item.id}>
+          <div className="selected-preview-card-heading">
+            <strong>전담 시간표</strong>
+          </div>
+          <div className="selected-preview-table-scroll">
+            <table className="selected-preview-table">
+              <tbody>
+                {mergedRows.map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {row.map((value, columnIndex) => {
+                      const isDayHeader = rowIndex === 0;
+                      const isPeriodHeader = columnIndex === 0;
+                      const className = isDayHeader && isPeriodHeader
+                        ? "preview-corner-cell"
+                        : isDayHeader
+                          ? "preview-day-cell"
+                          : isPeriodHeader
+                            ? "preview-period-cell"
+                            : undefined;
+
+                      if (className) {
+                        return (
+                          <th
+                            key={columnIndex}
+                            className={className}
+                            scope={isDayHeader && !isPeriodHeader ? "col" : isPeriodHeader && !isDayHeader ? "row" : undefined}
+                          >
+                            {value}
+                          </th>
+                        );
+                      }
+
+                      return <td key={columnIndex}>{value}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
       </div>
       <div className="saved-preview-actions">
         <button className="saved-cancel-button" type="button" onClick={onBack}>목록으로</button>
@@ -563,13 +792,11 @@ function SavedTimetableModal({
   onClose,
   onLoad,
   onDelete,
-  onNew,
 }: {
   savedTimetables: SavedTimetable[];
   onClose: () => void;
   onLoad: (item: SavedTimetable) => void;
   onDelete: (item: SavedTimetable) => boolean;
-  onNew: () => void;
 }) {
   const [previewItem, setPreviewItem] = useState<SavedTimetable | null>(null);
 
@@ -606,7 +833,6 @@ function SavedTimetableModal({
                 <strong>저장 목록</strong>
                 <span>{savedTimetables.length}개</span>
               </div>
-              <button type="button" onClick={onNew}>새로 입력</button>
             </div>
             {savedTimetables.length === 0 ? (
               <p className="saved-list-empty">저장된 시간표가 없습니다.</p>
@@ -621,7 +847,7 @@ function SavedTimetableModal({
                       onClick={() => setPreviewItem(item)}
                     >
                       <strong>{item.name}</strong>
-                      <span>{formatSavedDate(item.savedAt)} · {item.sources.length}개 표</span>
+                      <span>{formatSavedDate(item.savedAt)}</span>
                     </button>
                     <button className="saved-list-delete" type="button" onClick={() => deleteSavedItem(item)} aria-label={`${item.name} 삭제`}>삭제</button>
                   </div>

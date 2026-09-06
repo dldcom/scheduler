@@ -29,7 +29,7 @@ const STEPS: Record<SavedInputTourStep, { target: string; label: string; title: 
     target: "saved-input-area",
     label: "2 / 3",
     title: "전담 시간표 입력하기",
-    description: "한글이나 엑셀에서 표 전체를 복사해 위 칸에 붙여넣으세요. 전담 시간표가 여러 개라면 표를 하나씩 추가해 계속 붙여넣으면 됩니다. 직접 입력하려면 아래 ‘빈 시간표에 직접 입력’을 눌러 주세요.",
+    description: "한글이나 엑셀에서 표 전체를 복사해 위 칸에 붙여넣으세요. 전담 시간표가 여러 개라면 하나씩 붙여넣으면 한 표로 정리돼요. 직접 입력하려면 아래 ‘빈 시간표에 직접 입력’을 눌러 주세요.",
   },
   2: {
     target: "saved-save-button",

@@ -3,8 +3,11 @@ import CopyExample from "./CopyExample";
 
 export type TourStep = 0 | 1 | 2 | 3 | 4;
 
+const ALL_TOUR_STEPS: TourStep[] = [0, 1, 2, 3, 4];
+
 type GuideTourProps = {
   step: TourStep;
+  steps?: TourStep[];
   onStepChange: (step: TourStep) => void;
   onClose: () => void;
   onOpenSaved: () => void;
@@ -26,7 +29,7 @@ const STEP_CONTENT: Record<TourStep, { target: string; label: string; title: str
     target: "timetable-input",
     label: "1 / 5",
     title: "전담 시간표 입력",
-    description: "한글·엑셀 표를 붙여넣거나 직접 작성합니다. 저장한 시간표는 저장 목록에서 다시 불러올 수 있어요.",
+    description: "한글·엑셀 표를 붙여넣거나 직접 작성합니다.\n전담 시간표가 여러 개라면 여러 번 붙여넣으세요.",
   },
   1: {
     target: "day-periods",
@@ -56,6 +59,7 @@ const STEP_CONTENT: Record<TourStep, { target: string; label: string; title: str
 
 export default function GuideTour({
   step,
+  steps = ALL_TOUR_STEPS,
   onStepChange,
   onClose,
   onOpenSaved,
@@ -66,6 +70,9 @@ export default function GuideTour({
   const [tooltipHeight, setTooltipHeight] = useState(390);
   const tooltipRef = useRef<HTMLElement>(null);
   const content = STEP_CONTENT[step];
+  const stepIndex = Math.max(0, steps.indexOf(step));
+  const isFirstStep = stepIndex === 0;
+  const isLastStep = stepIndex === steps.length - 1;
 
   useLayoutEffect(() => {
     const target = document.querySelector<HTMLElement>(`[data-guide="${content.target}"]`);
@@ -142,11 +149,11 @@ export default function GuideTour({
   const canContinue = step === 0 ? hasLessons : step === 1 ? hasDayPeriods : true;
 
   function goBack() {
-    if (step > 0) onStepChange((step - 1) as TourStep);
+    if (!isFirstStep) onStepChange(steps[stepIndex - 1]);
   }
 
   function goNext() {
-    if (step < 3) onStepChange((step + 1) as TourStep);
+    if (!isLastStep) onStepChange(steps[stepIndex + 1]);
   }
 
   return (
@@ -155,28 +162,27 @@ export default function GuideTour({
       <div className="guide-highlight" style={highlightStyle} aria-hidden="true" />
       <aside ref={tooltipRef} className="guide-tooltip" style={tooltipStyle} role="dialog" aria-label="사용방법 안내">
         <div className="guide-tooltip-top">
-          <span>{content.label}</span>
+          <span>{stepIndex + 1} / {steps.length}</span>
           <button type="button" onClick={onClose} aria-label="사용방법 종료">×</button>
         </div>
         <h3>{content.title}</h3>
         <p>{content.description}</p>
         {step === 0 && <CopyExample />}
         <div className="guide-actions">
-          {step === 0 ? (
+          {step === 0 && !isLastStep ? (
             <button className="guide-secondary" type="button" onClick={onOpenSaved}>저장 목록에서 불러오기</button>
-          ) : step > 0 && step < 4 ? (
+          ) : !isFirstStep ? (
             <button className="guide-secondary" type="button" onClick={goBack}>이전</button>
           ) : <span />}
 
-          {step < 3 && (
+          {!isLastStep && (
             <button className="guide-primary" type="button" disabled={!canContinue} onClick={goNext}>
               다음
             </button>
           )}
-          {step === 3 && <span className="guide-action-hint">자동 편성 버튼을 눌러 주세요</span>}
-          {step === 4 && <button className="guide-primary" type="button" onClick={onClose}>확인</button>}
+        {step === 3 && !isLastStep && <span className="guide-action-hint">자동 편성 버튼을 눌러 주세요</span>}
+          {isLastStep && <button className="guide-primary" type="button" onClick={onClose}>확인</button>}
         </div>
-        {step === 0 && !hasLessons && <small>표를 붙여넣거나 직접 작성하면 다음 단계로 갈 수 있습니다.</small>}
       </aside>
     </div>
   );
